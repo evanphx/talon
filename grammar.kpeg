@@ -1,0 +1,200 @@
+%% { attr_accessor :ast }
+
+%% {
+  def initialize(*args)
+    super
+
+    @precedence = {
+      "*" => 8,
+      "/" => 8,
+      "+" => 7,
+      "-" => 7,
+      "==" => 10,
+      ":=" => 0,
+      "&&" => 3,
+      "||" => 2
+    }
+
+    @assoc = {
+      ":=" => :right,
+      "<<" => :left
+    }
+  end
+
+  def set_assoc(operator, assoc)
+    @assoc[operator] = assoc
+  end
+
+  def prec(op)
+    if level = @precedence[op]
+      return level
+    end
+
+    return 5
+  end
+
+  def assoc(op)
+    @assoc[op]
+  end
+
+  def binary(o, l, r)
+    Falcon::AST::BinaryOperator.new(l, r, o)
+  end
+
+  # courtesy of alexsuraci (@vito on github and twitter)
+  #
+  # when resolving `1 + 2 * 3', the call path is:
+  #
+  #     resolve(nil, 1, [+, 2, *, 3])
+  #     | resolve(+, 2, [*, 3])
+  #     | | resolve(*, 3, [])
+  #     | | `-> [3, []]
+  #     | `-> resolve(+, binary(*, 2, 3), [])
+  #     |     `-> [(2 * 3), []]
+  #     `-> resolve(nil, binary(+, 1, (2 * 3)), [])
+  #         `-> [(1 + (2 * 3)), [])
+  #
+  # where `binary(+, y, z)' constructs `y + z', with
+  # `z' being the expression from the nested resolve
+  #
+  def resolve(a, e, chain)
+    # if the chain is empty, we've got a full expression
+    # this is guaranteed to occur because we start with `a' as `nil',
+    # which means it'll keep resolving until the chain is consumed.
+    return [e, []] if chain.empty?
+
+    # pull the next operator out of the chain
+    b, *rest = chain
+
+    # if `a' is non-nil, and `a' and `b' associate to the left,
+    # stop, returning the expression and the rest of the chain,
+    # which will get picked up again when building up `a'
+    if a && (prec(a) > prec(b) || (prec(a) == prec(b) && assoc(a) == :left))
+      [e, chain]
+    else
+      # pull the next expression out to resolve the next operator
+      e2, *rest2 = rest
+
+      # resolve from the next operator onward,
+      # capturing the unconsumed bits as rest3
+      r, rest3 = resolve(b, e2, rest2)
+
+      # continue with the remaining chain (rest3)
+      # note that the original arg is passed here,
+      # with the next one already done
+      resolve(a, binary(b, e, r), rest3)
+    end
+  end
+}
+
+eof = !.
+
+number = < /[1-9][0-9]*/ > { text }
+
+integer = number:n { Falcon::AST::Number.new(n.to_i) }
+float = number:w "." number:f { Falcon::AST::Number.new("#{w}.#{f}".to_f) }
+
+true = "true" { Falcon::AST::True.new }
+false = "false" { Falcon::AST::False.new }
+
+keyword = "end" | "else"
+
+word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
+
+identifier = word:w { Falcon::AST::Identifier.new(w) }
+
+sp = /[\s\t]+/
+- = /[\s\t]*/
+
+many_expr = expr:e "\n" many_expr:m { [e] + m }
+          | expr:e { [e] }
+
+sequence = many_expr:e
+           { e.size > 1 ? Falcon::AST::Sequence.new(e) : e.first }
+
+expr_list = expr:e - "," - expr_list:l { [e] + l }
+          | expr:e { [e] }
+
+if = "if" sp expr:c "\n" sequence:t "\n" "end"
+     { Falcon::AST::If.new(c,t,nil) }
+   | "if" sp expr:c "\n" expr:t "\n" "else" "\n" expr:f "\n" "end"
+     { Falcon::AST::If.new(c,t,f) }
+
+typed_ident = word:i ":" word:t
+            { Falcon::AST::TypedIdentifier.new(i,t) }
+            | identifier
+
+ident_list = typed_ident:i - "," - ident_list:l { [i] + l }
+           | typed_ident:i { [i] }
+
+def_args = "(" - ident_list:l - ")" { l }
+
+ret_type = - ":" - word:t { t }
+
+def = "def" sp word:w def_args:a ret_type:t "\n" sequence:s "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,a,s,t) }
+    | "def" sp word:w def_args:a "\n" sequence:s "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,a,s,nil) }
+
+    | "def" sp word:w def_args:a "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,a,nil,nil) }
+    | "def" sp word:w def_args:a ret_type:t "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,a,nil,t) }
+
+    | "def" sp word:w "\n" sequence:s "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,nil,s,nil) }
+    | "def" sp word:w ret_type:t "\n" sequence:s "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,nil,s,t) }
+
+    | "def" sp word:w ret_type:t "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,nil,nil,t) }
+    | "def" sp word:w "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,nil,nil,nil) }
+
+class = "class" sp word:w "\n" "end"
+        { Falcon::AST::ClassDefinition.new(w,nil,nil) }
+      | "class" sp word:w - "<" - word:s "\n" "end"
+        { Falcon::AST::ClassDefinition.new(w,s,nil) }
+      | "class" sp word:w "\n" sequence:e "\n" "end"
+        { Falcon::AST::ClassDefinition.new(w,nil,e) }
+      | "class" sp word:w - "<" - word:s "\n" sequence:e "\n" "end"
+        { Falcon::AST::ClassDefinition.new(w,s,e) }
+
+operator_chars = /[~`!@#$\%^\&*\\+\-\/?:<=>\|]/
+unary_operator = < operator_chars > { text }
+binary_operator = < operator_chars+ > { text }
+
+literal = float
+        | integer
+        | true
+        | false
+        | identifier
+
+embed_rhs = literal:r "." word:w
+            { Falcon::AST::MethodCall.new(r,w,nil) }
+          | literal
+
+method_call = method_call:r "." word:w "(" - expr_list:l - ")"
+              { Falcon::AST::MethodCall.new(r,w,l) }
+            | method_call:r "." word:w sp expr_list:l
+              { Falcon::AST::MethodCall.new(r,w,l) }
+            | method_call:r "." word:w
+              { Falcon::AST::MethodCall.new(r,w,nil) }
+            | literal
+
+bin_expr = bin_expr:r "." word:w
+            { Falcon::AST::MethodCall.new(r,w,nil) }
+          | literal
+
+binary_c = (- binary_operator:o - bin_expr:e { [o, e] })+:bs { bs.flatten }
+binary_send = bin_expr:l binary_c:c { resolve(nil, l, c).first }
+
+expr = if
+     | def
+     | class
+     | unary_operator:o expr:r
+       { Falcon::AST::UnaryOperator.new(r,o) }
+     | binary_send
+     | method_call
+
+root = sequence:e eof { @ast = e }
