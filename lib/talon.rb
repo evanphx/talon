@@ -1,3 +1,4 @@
+require 'talon/ast/comment'
 require 'talon/ast/number'
 require 'talon/ast/boolean'
 require 'talon/ast/identifier'

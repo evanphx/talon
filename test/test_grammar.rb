@@ -193,6 +193,17 @@ class TestGrammar < Test::Unit::TestCase
     assert_number node.arguments[0], 2
   end
 
+  def test_method_call_with_args_no_paren_spaced
+    node = parse("1.foo 2,\n  3")
+
+    assert_call node, "foo"
+    assert_number node.receiver, 1
+    assert_equal 2, node.arguments.size
+    assert_number node.arguments[0], 2
+    assert_number node.arguments[1], 3
+  end
+
+
   def test_method_call_with_args_no_paren_twice
     assert_raises TestParser::ParseError do
       parse("1.bar 3.foo 2")
@@ -420,6 +431,32 @@ class TestGrammar < Test::Unit::TestCase
 
   def test_binary_operator
     node = parse("1+2")
+
+    assert_kind_of Talon::AST::BinaryOperator, node
+    assert_equal "+", node.operator
+
+    assert_number node.receiver, 1
+    assert_number node.argument, 2
+  end
+
+  def test_binary_operator_spacing
+    node = parse("1 +2")
+
+    assert_kind_of Talon::AST::BinaryOperator, node
+    assert_equal "+", node.operator
+
+    assert_number node.receiver, 1
+    assert_number node.argument, 2
+
+    node = parse("1 + 2")
+
+    assert_kind_of Talon::AST::BinaryOperator, node
+    assert_equal "+", node.operator
+
+    assert_number node.receiver, 1
+    assert_number node.argument, 2
+
+    node = parse("1 +\n  2")
 
     assert_kind_of Talon::AST::BinaryOperator, node
     assert_equal "+", node.operator
@@ -991,6 +1028,17 @@ class TestGrammar < Test::Unit::TestCase
 
   def test_spacing
     assert_equal "1\n2", parse("1\n\n   \n2").to_code
+  end
+
+  def test_comment
+    node = parse("1\n-- this is a one line comment\n2")
+
+    assert_seq node, 3
+    assert_number node.elements[0], 1
+    com = node.elements[1]
+    assert_kind_of Talon::AST::Comment, com
+    assert_equal " this is a one line comment", com.text
+    assert_number node.elements[2], 2
   end
 
 
