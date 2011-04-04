@@ -116,6 +116,14 @@ class TestGrammar < Test::Unit::TestCase
     assert_number node.arguments[0], 2
   end
 
+  def test_method_call_with_args
+    node = parse("1.foo()")
+
+    assert_call node, "foo"
+    assert_number node.receiver, 1
+    assert_equal nil, node.arguments
+  end
+
   def test_method_call_with_multiple_args
     node = parse("1.foo(2,3)")
 
@@ -169,6 +177,103 @@ class TestGrammar < Test::Unit::TestCase
     assert_number node.arguments[0], 2
   end
 
+  def test_method_call_with_args_no_paren_twice
+    assert_raises TestParser::ParseError do
+      parse("1.bar 3.foo 2")
+    end
+  end
+
+  def test_method_call_with_args_no_paren_somewhere_in_args
+    assert_raises TestParser::ParseError do
+      parse("1.bar 2, 3.foo 2")
+    end
+  end
+
+  def test_method_call_with_args_no_paren_somewhere_in_args_with_grouping
+    assert_equal "1.bar(2, (3.foo(2)))", parse("1.bar 2, (3.foo 2)").to_code
+  end
+
+  def test_method_call_with_no_paren1
+    node = parse("1.fi c.qux(2)")
+
+    assert_call node, "fi"
+    assert_number node.receiver, 1
+    assert_equal 1, node.arguments.size
+
+    a1 = node.arguments[0]
+
+    assert_call a1, "qux"
+    assert_ident a1.receiver, "c"
+    assert_equal 1, a1.arguments.size
+    assert_number a1.arguments[0], 2
+  end
+
+
+  def test_method_call_with_no_paren2
+    node = parse("1.fi a.foo, b.bar()")
+
+    assert_call node, "fi"
+    assert_number node.receiver, 1
+    assert_equal 2, node.arguments.size
+
+    a1 = node.arguments[0]
+
+    assert_call a1, "foo"
+    assert_ident a1.receiver, "a"
+    assert_equal nil, a1.arguments
+
+    a2 = node.arguments[1]
+
+    assert_call a2, "bar"
+    assert_ident a2.receiver, "b"
+    assert_equal nil, a2.arguments
+  end
+
+  def test_method_call_with_no_paren3
+    node = parse("1.fi a.foo, c.qux(2)")
+
+    assert_call node, "fi"
+    assert_number node.receiver, 1
+    assert_equal 2, node.arguments.size
+
+    a1 = node.arguments[0]
+
+    assert_call a1, "foo"
+    assert_ident a1.receiver, "a"
+    assert_equal nil, a1.arguments
+
+    a2 = node.arguments[1]
+
+    assert_call a2, "qux"
+    assert_ident a2.receiver, "c"
+    assert_equal 1, a2.arguments.size
+    assert_number a2.arguments[0], 2
+  end
+
+  def test_method_call_with_no_paren4
+    node = parse("1.fi a.foo, b.bar(), c.qux(2)")
+
+    assert_call node, "fi"
+    assert_number node.receiver, 1
+    assert_equal 3, node.arguments.size
+
+    a1 = node.arguments[0]
+
+    assert_call a1, "foo"
+    assert_equal nil, a1.arguments
+
+    a2 = node.arguments[1]
+
+    assert_call a2, "bar"
+    assert_equal nil, a2.arguments
+
+    a3 = node.arguments[2]
+
+    assert_call a3, "qux"
+    assert_equal 1, a3.arguments.size
+    assert_number a3.arguments[0], 2
+  end
+
   def test_method_call_with_many_args_no_paren
     node = parse("1.foo 2, 3")
 
@@ -177,6 +282,81 @@ class TestGrammar < Test::Unit::TestCase
     assert_equal 2, node.arguments.size
     assert_number node.arguments[0], 2
     assert_number node.arguments[1], 3
+  end
+
+  def test_bracket_operator
+    node = parse("a[1]")
+
+    assert_kind_of Falcon::AST::BracketOperator, node
+    assert_ident node.receiver, "a"
+
+    assert_equal 1, node.arguments.size
+    assert_number node.arguments[0], 1
+  end
+
+  def test_bracket_operator_multiple
+    node = parse("a[1,2]")
+
+    assert_kind_of Falcon::AST::BracketOperator, node
+    assert_ident node.receiver, "a"
+
+    assert_equal 2, node.arguments.size
+    assert_number node.arguments[0], 1
+    assert_number node.arguments[1], 2
+  end
+
+  def test_bracket_operator_chain
+    node = parse("a[1][2]")
+
+    assert_kind_of Falcon::AST::BracketOperator, node
+
+    recv = node.receiver
+    assert_kind_of Falcon::AST::BracketOperator, recv
+
+    assert_ident recv.receiver, "a"
+
+    assert_equal 1, recv.arguments.size
+    assert_number recv.arguments[0], 1
+
+    assert_equal 1, node.arguments.size
+    assert_number node.arguments[0], 2
+  end
+
+  def test_bracket_operator_with_method
+    node = parse("a[1].foo")
+
+    assert_kind_of Falcon::AST::MethodCall, node
+
+    recv = node.receiver
+    assert_kind_of Falcon::AST::BracketOperator, recv
+
+    assert_ident recv.receiver, "a"
+
+    assert_equal 1, recv.arguments.size
+    assert_number recv.arguments[0], 1
+
+    assert_equal "foo", node.method_name
+
+    assert_equal nil, node.arguments
+  end
+
+  def test_bracket_operator_with_method_and_args
+    node = parse("a[1].foo 2")
+
+    assert_kind_of Falcon::AST::MethodCall, node
+
+    recv = node.receiver
+    assert_kind_of Falcon::AST::BracketOperator, recv
+
+    assert_ident recv.receiver, "a"
+
+    assert_equal 1, recv.arguments.size
+    assert_number recv.arguments[0], 1
+
+    assert_equal "foo", node.method_name
+
+    assert_equal 1, node.arguments.size
+    assert_number node.arguments[0], 2
   end
 
   def test_unary_operator
@@ -359,6 +539,36 @@ class TestGrammar < Test::Unit::TestCase
 
     assert_call node.argument, "d"
     assert_ident node.argument.receiver, "c"
+  end
+
+  def test_binary_operator_with_method_call5
+    node = parse("a.b(2) + c.d(3)")
+
+    assert_kind_of Falcon::AST::BinaryOperator, node
+    assert_equal "+", node.operator
+
+    assert_call node.receiver, "b"
+    assert_ident node.receiver.receiver, "a"
+    assert_number node.receiver.arguments[0], 2
+
+    assert_call node.argument, "d"
+    assert_ident node.argument.receiver, "c"
+    assert_number node.argument.arguments[0], 3
+  end
+
+  def test_binary_operator_with_method_call6
+    node = parse("a.b() + c.d()")
+
+    assert_kind_of Falcon::AST::BinaryOperator, node
+    assert_equal "+", node.operator
+
+    assert_call node.receiver, "b"
+    assert_ident node.receiver.receiver, "a"
+    assert_equal nil, node.receiver.arguments
+
+    assert_call node.argument, "d"
+    assert_ident node.argument.receiver, "c"
+    assert_equal nil, node.argument.arguments
   end
 
   def test_binary_operator_in_noparen_args
@@ -569,6 +779,18 @@ class TestGrammar < Test::Unit::TestCase
     assert_equal nil, node.body
   end
 
+  def test_def_with_template_args
+    node = parse "def foo[a]\nend"
+    assert_kind_of Falcon::AST::MethodDefinition, node
+
+    assert_kind_of Falcon::AST::TemplatedName, node.name
+
+    assert_equal "foo", node.name.name
+    assert_equal 1, node.name.arguments.size
+    assert_ident node.name.arguments[0], "a"
+    assert_equal nil, node.body
+  end
+
   def test_class
     node = parse "class foo\nend"
 
@@ -602,6 +824,40 @@ class TestGrammar < Test::Unit::TestCase
 
     assert_kind_of Falcon::AST::MethodDefinition, node.body
     assert_equal "bar", node.body.name
+  end
+
+  def test_class_with_template_args
+    node = parse "class foo[b]\nend"
+
+    assert_kind_of Falcon::AST::ClassDefinition, node
+    assert_kind_of Falcon::AST::TemplatedName, node.name
+
+    assert_equal "foo", node.name.name
+    assert_equal 1, node.name.arguments.size
+    assert_ident node.name.arguments[0], "b"
+  end
+
+  def test_class_with_complex_template_args
+    node = parse "class foo[b <: c, d !> e]\nend"
+
+    assert_kind_of Falcon::AST::ClassDefinition, node
+    assert_kind_of Falcon::AST::TemplatedName, node.name
+
+    assert_equal "foo", node.name.name
+
+    args = node.name.arguments
+
+    assert_equal 2, args.size
+
+    assert_kind_of Falcon::AST::BinaryOperator, args[0]
+    assert_equal "<:", args[0].operator
+    assert_ident args[0].receiver, "b"
+    assert_ident args[0].argument, "c"
+
+    assert_kind_of Falcon::AST::BinaryOperator, args[1]
+    assert_equal "!>", args[1].operator
+    assert_ident args[1].receiver, "d"
+    assert_ident args[1].argument, "e"
   end
 
 

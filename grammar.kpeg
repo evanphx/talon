@@ -131,33 +131,23 @@ def_args = "(" - ident_list:l - ")" { l }
 
 ret_type = - ":" - word:t { t }
 
-def = "def" sp word:w def_args:a ret_type:t "\n" sequence:s "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,a,s,t) }
-    | "def" sp word:w def_args:a "\n" sequence:s "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,a,s,nil) }
+templated_name = word:w "[" expr_list:e "]"
+                 { Falcon::AST::TemplatedName.new(w,e) }
+               | word:w
 
-    | "def" sp word:w def_args:a "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,a,nil,nil) }
-    | "def" sp word:w def_args:a ret_type:t "\n" "end"
+def_start = "def" sp templated_name:w { w }
+
+def = def_start:w def_args?:a ret_type?:t "\n" "end"
       { Falcon::AST::MethodDefinition.new(w,a,nil,t) }
+    | def_start:w def_args?:a ret_type?:t "\n" sequence:s "\n" "end"
+      { Falcon::AST::MethodDefinition.new(w,a,s,t) }
 
-    | "def" sp word:w "\n" sequence:s "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,nil,s,nil) }
-    | "def" sp word:w ret_type:t "\n" sequence:s "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,nil,s,t) }
+class_start = "class" sp templated_name:w { w }
+class_superclass = - "<" - templated_name:s { s }
 
-    | "def" sp word:w ret_type:t "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,nil,nil,t) }
-    | "def" sp word:w "\n" "end"
-      { Falcon::AST::MethodDefinition.new(w,nil,nil,nil) }
-
-class = "class" sp word:w "\n" "end"
-        { Falcon::AST::ClassDefinition.new(w,nil,nil) }
-      | "class" sp word:w - "<" - word:s "\n" "end"
+class = class_start:w class_superclass?:s "\n" "end"
         { Falcon::AST::ClassDefinition.new(w,s,nil) }
-      | "class" sp word:w "\n" sequence:e "\n" "end"
-        { Falcon::AST::ClassDefinition.new(w,nil,e) }
-      | "class" sp word:w - "<" - word:s "\n" sequence:e "\n" "end"
+      | class_start:w class_superclass?:s "\n" sequence:e "\n" "end"
         { Falcon::AST::ClassDefinition.new(w,s,e) }
 
 operator_chars = /[~`!@#$\%^\&*\\+\-\/?:<=>\|]/
@@ -174,27 +164,57 @@ embed_rhs = literal:r "." word:w
             { Falcon::AST::MethodCall.new(r,w,nil) }
           | literal
 
-method_call = method_call:r "." word:w "(" - expr_list:l - ")"
-              { Falcon::AST::MethodCall.new(r,w,l) }
-            | method_call:r "." word:w sp expr_list:l
+call_np_list = method_np_arg:e - "," - call_np_list:l { [e] + l }
+             | method_np_arg:e { [e] }
+
+method_call_np = method_np_recv:r "." word:w sp call_np_list:l
+                 { Falcon::AST::MethodCall.new(r,w,l) }
+
+method_np_recv = method_np_recv:r "." word:w "(" - expr_list:l - ")"
+                 { Falcon::AST::MethodCall.new(r,w,l) }
+               | method_np_recv:r "[" - expr_list:l - "]"
+                 { Falcon::AST::BracketOperator.new(r,l) }
+               | literal
+
+method_np_arg = grouped
+              | binary_send
+              | method_np_arg:r "." word:w "(" - expr_list?:l - ")"
+                { Falcon::AST::MethodCall.new(r,w,l) }
+              | method_np_arg:r "." word:w
+                { Falcon::AST::MethodCall.new(r,w,nil) }
+              | method_np_arg:r "[" - expr_list:l - "]"
+                { Falcon::AST::BracketOperator.new(r,l) }
+              | literal
+
+method_call = method_call:r "." word:w "(" - expr_list?:l - ")"
               { Falcon::AST::MethodCall.new(r,w,l) }
             | method_call:r "." word:w
               { Falcon::AST::MethodCall.new(r,w,nil) }
+            | method_call:r "[" - expr_list:l - "]"
+              { Falcon::AST::BracketOperator.new(r,l) }
             | literal
 
-bin_expr = bin_expr:r "." word:w
+bin_expr = bin_expr:r "." word:w "(" - expr_list?:l - ")"
+            { Falcon::AST::MethodCall.new(r,w,l) }
+          | bin_expr:r "." word:w
             { Falcon::AST::MethodCall.new(r,w,nil) }
           | literal
 
 binary_c = (- binary_operator:o - bin_expr:e { [o, e] })+:bs { bs.flatten }
 binary_send = bin_expr:l binary_c:c { resolve(nil, l, c).first }
 
+call = unary_operator:o expr:r
+       { Falcon::AST::UnaryOperator.new(r,o) }
+     | binary_send
+     | method_call_np
+     | method_call
+
 expr = if
      | def
      | class
-     | unary_operator:o expr:r
-       { Falcon::AST::UnaryOperator.new(r,o) }
-     | binary_send
-     | method_call
+     | call
+
+grouped = "(" expr:e ")"
+          { Falcon::AST::Grouped.new(e) }
 
 root = sequence:e eof { @ast = e }
