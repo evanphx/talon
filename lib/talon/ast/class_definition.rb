@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class ClassDefinition
       def initialize(name,superclass_name,body)

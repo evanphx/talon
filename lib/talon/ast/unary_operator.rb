@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class UnaryOperator
       def initialize(receiver, operator)

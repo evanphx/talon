@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class MethodDefinition
       def initialize(name, args, body, return_type)

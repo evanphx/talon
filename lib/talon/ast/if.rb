@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class If
       def initialize(cond, tb, eb)

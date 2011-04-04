@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class MethodCall
       def initialize(receiver, name, args)

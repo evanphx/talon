@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class Sequence
       def initialize(elements)
@@ -9,6 +9,10 @@ module Falcon
 
       def [](idx)
         @elements[idx]
+      end
+
+      def to_code
+        @elements.map { |i| i.to_code }.join("\n")
       end
     end
   end

@@ -1,4 +1,4 @@
-module Falcon
+module Talon
   module AST
     class BinaryOperator
       def initialize(receiver, argument, operator)
