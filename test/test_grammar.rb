@@ -2,9 +2,12 @@ require 'test/unit'
 require 'rubygems'
 require 'kpeg'
 
-require 'talon'
+module Talon
+end
 
 KPeg.load File.expand_path("../../grammar.kpeg", __FILE__), "TestParser"
+
+require 'talon'
 
 class TestGrammar < Test::Unit::TestCase
   def parse(str)
@@ -42,7 +45,7 @@ class TestGrammar < Test::Unit::TestCase
 
   def assert_if(obj)
     assert_kind_of Talon::AST::If, obj
-    return [obj.condition, obj.then, obj.else]
+    return [obj.condition, obj.then_body, obj.else_body]
   end
 
   def assert_call(obj, name)
@@ -658,8 +661,8 @@ class TestGrammar < Test::Unit::TestCase
     assert_kind_of Talon::AST::If, node
 
     cond = node.condition
-    tb = node.then
-    eb = node.else
+    tb = node.then_body
+    eb = node.else_body
 
     assert_number cond, 1
     assert_ident tb, "yes"
@@ -671,8 +674,8 @@ class TestGrammar < Test::Unit::TestCase
     assert_kind_of Talon::AST::If, node
 
     cond = node.condition
-    tb = node.then
-    eb = node.else
+    tb = node.then_body
+    eb = node.else_body
 
     assert_number cond, 1
     assert_ident tb, "yes"
@@ -684,11 +687,11 @@ class TestGrammar < Test::Unit::TestCase
     assert_kind_of Talon::AST::If, node
 
     cond = node.condition
-    tb = node.then
+    tb = node.then_body
 
     assert_number cond, 1
     assert_ident tb, "yes"
-    assert_equal nil, node.else
+    assert_equal nil, node.else_body
   end
 
   def test_sequence
@@ -713,7 +716,7 @@ class TestGrammar < Test::Unit::TestCase
     node = parse "if 1\n2\n3\nend"
 
     cond = node.condition
-    tb = node.then
+    tb = node.then_body
 
     assert_number cond, 1
     assert_seq tb, 2

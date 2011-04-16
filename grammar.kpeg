@@ -37,10 +37,6 @@
     @assoc[op]
   end
 
-  def binary(o, l, r)
-    Talon::AST::BinaryOperator.new(l, r, o)
-  end
-
   # courtesy of alexsuraci (@vito on github and twitter)
   #
   # when resolving `1 + 2 * 3', the call path is:
@@ -49,12 +45,12 @@
   #     | resolve(+, 2, [*, 3])
   #     | | resolve(*, 3, [])
   #     | | `-> [3, []]
-  #     | `-> resolve(+, binary(*, 2, 3), [])
+  #     | `-> resolve(+, binary(2, 3, *), [])
   #     |     `-> [(2 * 3), []]
-  #     `-> resolve(nil, binary(+, 1, (2 * 3)), [])
+  #     `-> resolve(nil, binary(1, (2 * 3), +), [])
   #         `-> [(1 + (2 * 3)), [])
   #
-  # where `binary(+, y, z)' constructs `y + z', with
+  # where `binary(y, z, +)' constructs `y + z', with
   # `z' being the expression from the nested resolve
   #
   def resolve(a, e, chain)
@@ -82,10 +78,28 @@
       # continue with the remaining chain (rest3)
       # note that the original arg is passed here,
       # with the next one already done
-      resolve(a, binary(b, e, r), rest3)
+      resolve(a, binary(e, r, b), rest3)
     end
   end
 }
+
+%% ast-location = ::Talon::AST
+%% comment = ast Comment(text)
+%% bracket = ast BracketOperator(receiver, arguments)
+%% number = ast Number(value)
+%% bool_true = ast True()
+%% bool_false = ast False()
+%% ident = ast Identifier(name)
+%% typed_ident = ast TypedIdentifier(name, type)
+%% templated_name = ast TemplatedName(name, arguments)
+%% method_def = ast MethodDefinition(name, arguments, body, return_type)
+%% class_def = ast ClassDefinition(name, superclass_name, body)
+%% seq = ast Sequence(elements)
+%% if_node = ast If(condition, then_body, else_body)
+%% call = ast MethodCall(receiver, method_name, arguments)
+%% unary = ast UnaryOperator(receiver, operator)
+%% binary = ast BinaryOperator(receiver, argument, operator)
+%% group = ast Grouped(expression)
 
 eof = !.
 
@@ -96,8 +110,7 @@ nl = "\n"
 sp = space+
 - = space* 
 
-comment = "--" < (!nl .)* > nl
-          { Talon::AST::Comment.new(text) }
+comment = "--" < (!nl .)* > nl ~comment(text)
 
 br-sp = (space | nl)*
 
@@ -105,24 +118,24 @@ expr_end = ("\n" | ";") br-sp
 
 number = < /[1-9][0-9]*/ > { text }
 
-integer = number:n { Talon::AST::Number.new(n.to_i) }
-float = number:w "." number:f { Talon::AST::Number.new("#{w}.#{f}".to_f) }
+integer = number:n ~number(n.to_i)
+float = number:w "." number:f ~number("#{w}.#{f}".to_f)
 
-true = "true" { Talon::AST::True.new }
-false = "false" { Talon::AST::False.new }
+true = "true" ~bool_true()
+false = "false" ~bool_false()
 
 keyword = "end" | "else"
 
 word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
 
-identifier = word:w { Talon::AST::Identifier.new(w) }
+identifier = word:w ~ident(w)
 
 many_expr = comment:e many_expr:m { [e] + m }
           | expr:e expr_end many_expr:m { [e] + m }
           | expr:e { [e] }
 
 sequence = many_expr:e
-           { e.size > 1 ? Talon::AST::Sequence.new(e) : e.first }
+           { e.size > 1 ? seq(e) : e.first }
 
 expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
             | expr:e { [e] }
@@ -130,12 +143,11 @@ expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
 expr_list = br-sp expr_list_b:b br-sp { b }
 
 if = "if" sp expr:c expr_end sequence:t expr_end "end"
-     { Talon::AST::If.new(c,t,nil) }
+     ~if_node(c,t,nil)
    | "if" sp expr:c expr_end expr:t expr_end "else" expr_end expr:f expr_end "end"
-     { Talon::AST::If.new(c,t,f) }
+     ~if_node(c,t,f)
 
-typed_ident = word:i ":" word:t
-            { Talon::AST::TypedIdentifier.new(i,t) }
+typed_ident = word:i ":" word:t ~typed_ident(i,t)
             | identifier
 
 ident_list = typed_ident:i br-sp "," br-sp ident_list:l { [i] + l }
@@ -145,24 +157,23 @@ def_args = "(" br-sp ident_list:l br-sp ")" { l }
 
 ret_type = - ":" - word:t { t }
 
-templated_name = word:w "[" expr_list:e "]"
-                 { Talon::AST::TemplatedName.new(w,e) }
+templated_name = word:w "[" expr_list:e "]" ~templated_name(w,e)
                | word:w
 
 def_start = "def" sp templated_name:w { w }
 
 def = def_start:w def_args?:a ret_type?:t expr_end "end"
-      { Talon::AST::MethodDefinition.new(w,a,nil,t) }
+      ~method_def(w,a,nil,t)
     | def_start:w def_args?:a ret_type?:t expr_end sequence:s expr_end "end"
-      { Talon::AST::MethodDefinition.new(w,a,s,t) }
+      ~method_def(w,a,s,t)
 
 class_start = "class" sp templated_name:w { w }
 class_superclass = - "<" - templated_name:s { s }
 
 class = class_start:w class_superclass?:s expr_end "end"
-        { Talon::AST::ClassDefinition.new(w,s,nil) }
+        ~class_def(w,s,nil)
       | class_start:w class_superclass?:s expr_end sequence:e expr_end "end"
-        { Talon::AST::ClassDefinition.new(w,s,e) }
+        ~class_def(w,s,e)
 
 operator_chars = /[~`!@#$\%^\&*\\+\-\/?:<=>\|]/
 unary_operator = < operator_chars > { text }
@@ -174,51 +185,38 @@ literal = float
         | false
         | identifier
 
-embed_rhs = literal:r "." word:w
-            { Talon::AST::MethodCall.new(r,w,nil) }
+embed_rhs = literal:r "." word:w ~call(r,w)
           | literal
 
 call_np_list = method_np_arg:e - "," br-sp call_np_list:l { [e] + l }
              | method_np_arg:e { [e] }
 
-method_call_np = method_np_recv:r "." word:w sp call_np_list:l
-                 { Talon::AST::MethodCall.new(r,w,l) }
+method_call_np = method_np_recv:r "." word:w sp call_np_list:l ~call(r,w,l)
 
-method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")"
-                 { Talon::AST::MethodCall.new(r,w,l) }
-               | method_np_recv:r "[" expr_list:l "]"
-                 { Talon::AST::BracketOperator.new(r,l) }
+method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
+               | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
                | literal
 
 method_np_arg = grouped
               | binary_send
-              | method_np_arg:r "." word:w "(" expr_list?:l ")"
-                { Talon::AST::MethodCall.new(r,w,l) }
-              | method_np_arg:r "." word:w
-                { Talon::AST::MethodCall.new(r,w,nil) }
-              | method_np_arg:r "[" expr_list:l "]"
-                { Talon::AST::BracketOperator.new(r,l) }
+              | method_np_arg:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+              | method_np_arg:r "." word:w ~call(r,w,nil)
+              | method_np_arg:r "[" expr_list:l "]" ~bracket(r,l)
               | literal
 
-method_call = method_call:r "." word:w "(" expr_list?:l ")"
-              { Talon::AST::MethodCall.new(r,w,l) }
-            | method_call:r "." word:w
-              { Talon::AST::MethodCall.new(r,w,nil) }
-            | method_call:r "[" expr_list:l "]"
-              { Talon::AST::BracketOperator.new(r,l) }
+method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+            | method_call:r "." word:w ~call(r,w,nil)
+            | method_call:r "[" expr_list:l "]" ~bracket(r,l)
             | literal
 
-bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")"
-            { Talon::AST::MethodCall.new(r,w,l) }
-          | bin_expr:r "." word:w
-            { Talon::AST::MethodCall.new(r,w,nil) }
+bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+          | bin_expr:r "." word:w ~call(r,w,nil)
           | literal
 
 binary_c = (- binary_operator:o br-sp bin_expr:e { [o, e] })+:bs { bs.flatten }
 binary_send = bin_expr:l binary_c:c { resolve(nil, l, c).first }
 
-call = unary_operator:o expr:r
-       { Talon::AST::UnaryOperator.new(r,o) }
+call = unary_operator:o expr:r ~unary(r,o)
      | binary_send
      | method_call_np
      | method_call
@@ -228,7 +226,6 @@ expr = if
      | class
      | call
 
-grouped = "(" expr:e ")"
-          { Talon::AST::Grouped.new(e) }
+grouped = "(" expr:e ")" ~group(e)
 
 root = sequence:e eof { @ast = e }
