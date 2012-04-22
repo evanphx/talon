@@ -1,5 +1,3 @@
-%% { attr_accessor :ast }
-
 %% {
   def initialize(*args)
     super
@@ -10,15 +8,19 @@
       "+" => 7,
       "-" => 7,
       "==" => 10,
-      ":=" => 0,
+      "=" => 0,
       "&&" => 3,
       "||" => 2
     }
 
     @assoc = {
-      ":=" => :right,
+      "=" => :right,
       "<<" => :left
     }
+  end
+
+  def ast
+    @ast || @result
   end
 
   def set_assoc(operator, assoc)
@@ -87,19 +89,33 @@
 %% comment = ast Comment(text)
 %% bracket = ast BracketOperator(receiver, arguments)
 %% number = ast Number(value)
+%% strlit = ast String(value)
 %% bool_true = ast True()
 %% bool_false = ast False()
 %% ident = ast Identifier(name)
 %% typed_ident = ast TypedIdentifier(name, type)
 %% templated_name = ast TemplatedName(name, arguments)
 %% method_def = ast MethodDefinition(name, arguments, body, return_type)
+%% method_dec = ast MethodDeclaration(name, arguments, return_type, attribute)
 %% class_def = ast ClassDefinition(name, superclass_name, body)
+%% trait_def = ast TraitDefinition(name, body)
 %% seq = ast Sequence(elements)
 %% if_node = ast If(condition, then_body, else_body)
 %% call = ast MethodCall(receiver, method_name, arguments)
 %% unary = ast UnaryOperator(receiver, operator)
 %% binary = ast BinaryOperator(receiver, argument, operator)
 %% group = ast Grouped(expression)
+%% attr = ast Attribute(name, values)
+%% var = ast VariableCreation(identifier, type_decl, expression)
+%% var_decl = ast VariableDeclaration(identifier, type_decl)
+%% ivar_decl = ast IVarDeclaration(identifier, type_decl)
+%% named_type = ast NamedType(identifier)
+%% pointer_type = ast PointerType(inner)
+%% array_type = ast ArrayType(inner)
+%% scoped_type = ast ScopedType(parent, child)
+%% templated_type = ast TemplatedType(base, arguments)
+%% ivar = ast InstanceVariable(name)
+%% assign = ast Assignment(variable, value)
 
 eof = !.
 
@@ -116,7 +132,7 @@ br-sp = (space | nl)*
 
 expr_end = ("\n" | ";") br-sp
 
-number = < /[1-9][0-9]*/ > { text }
+number = < ("0" | /[1-9][0-9]*/) > { text }
 
 integer = number:n ~number(n.to_i)
 float = number:w "." number:f ~number("#{w}.#{f}".to_f)
@@ -128,11 +144,29 @@ keyword = "end" | "else"
 
 word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
 
+string = "\"" < /[^"]*/ > "\"" ~strlit(text) 
+
 identifier = word:w ~ident(w)
 
-many_expr = comment:e many_expr:m { [e] + m }
-          | expr:e expr_end many_expr:m { [e] + m }
-          | expr:e { [e] }
+template_arg = true | false | integer | type_id
+
+template_args = template_arg:a br-sp "," br-sp template_args:t { [a] + t }
+              | template_arg:a { [a] }
+
+type_mod  = type_mod:t "[]" ~array_type(t)
+          | type_mod:t "*"  ~pointer_type(t)
+          | type_mod:b "<" template_args:a ">" ~templated_type(b, a)
+          | word:w ~named_type(w)
+
+type_id = type_mod:w "::" type_id:t ~scoped_type(w, t)
+        | type_mod
+
+template_instance = word "<" word ">"
+type_array = word "[]"
+
+many_expr = - comment:e many_expr:m { [e] + m }
+          | - expr:e expr_end many_expr:m { [e] + m }
+          | - expr:e { [e] }
 
 sequence = many_expr:e
            { e.size > 1 ? seq(e) : e.first }
@@ -147,17 +181,21 @@ if = "if" sp expr:c expr_end sequence:t expr_end "end"
    | "if" sp expr:c expr_end expr:t expr_end "else" expr_end expr:f expr_end "end"
      ~if_node(c,t,f)
 
-typed_ident = word:i ":" word:t ~typed_ident(i,t)
+typed_ident = word:i br-sp ":" br-sp type_id:t ~typed_ident(i,t)
             | identifier
 
 ident_list = typed_ident:i br-sp "," br-sp ident_list:l { [i] + l }
            | typed_ident:i { [i] }
 
-def_args = "(" br-sp ident_list:l br-sp ")" { l }
+def_args = "(" br-sp ")" { nil }
+         | "(" br-sp ident_list:l br-sp ")" { l }
 
-ret_type = - ":" - word:t { t }
+ret_type = - ":" - type_id:t { t }
 
-templated_name = word:w "[" expr_list:e "]" ~templated_name(w,e)
+id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
+        | identifier:a { [a] }
+
+templated_name = word:w "<" id_list:e ">" ~templated_name(w,e)
                | word:w
 
 def_start = "def" sp templated_name:w { w }
@@ -167,23 +205,51 @@ def = def_start:w def_args?:a ret_type?:t expr_end "end"
     | def_start:w def_args?:a ret_type?:t expr_end sequence:s expr_end "end"
       ~method_def(w,a,s,t)
 
+attribute_val  = "\"" < /[^"]+/ > "\"" { text }
+               | number:n { n.to_i }
+
+attribute_kv   = word:n br-sp "=" br-sp attribute_val:v { { n => v } }
+attribute_list = attribute_kv:i br-sp "," br-sp attribute_list:l { i.merge(l) }
+               | attribute_kv
+
+attribute = "%" word:n "(" attribute_list:l ")" br-sp
+          ~attr(n,l)
+
+dec = attribute?:ab "dec" sp templated_name:w def_args?:a ret_type:t
+     ~method_dec(w,a,t,ab)
+
+var = "var" sp word:i sp ":" sp type_id:t sp "=" sp call:e ~var(i,t,e)
+    | "var" sp word:i sp "=" sp call:e ~var(i,nil,e)
+    | "var" sp "@" word:w sp ":" sp type_id:t ~ivar_decl(w,t)
+    | "var" sp word:i sp ":" sp type_id:t ~var_decl(i,t)
+
 class_start = "class" sp templated_name:w { w }
-class_superclass = - "<" - templated_name:s { s }
+class_superclass = - ":" - templated_name:s { s }
 
 class = class_start:w class_superclass?:s expr_end "end"
         ~class_def(w,s,nil)
       | class_start:w class_superclass?:s expr_end sequence:e expr_end "end"
         ~class_def(w,s,e)
 
-operator_chars = /[~`!@#$\%^\&*\\+\-\/?:<=>\|]/
+trait = "trait" sp templated_name:name expr_end "end"
+        ~trait_def(name,nil)
+      | "trait" sp templated_name:name expr_end sequence:e expr_end "end"
+        ~trait_def(name,e)
+
+operator_chars = /[~`!#$\%^\&*\\+\-\/?:<=>\|]/
 unary_operator = < operator_chars > { text }
 binary_operator = < operator_chars+ > { text }
+
+ivar = "@" word:w ~ivar(w)
 
 literal = float
         | integer
         | true
         | false
-        | identifier
+        | string
+        | !template_instance !type_array identifier
+        | ivar
+        | type_id
 
 embed_rhs = literal:r "." word:w ~call(r,w)
           | literal
@@ -192,6 +258,8 @@ call_np_list = method_np_arg:e - "," br-sp call_np_list:l { [e] + l }
              | method_np_arg:e { [e] }
 
 method_call_np = method_np_recv:r "." word:w sp call_np_list:l ~call(r,w,l)
+
+func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
 
 method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
                | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
@@ -207,25 +275,38 @@ method_np_arg = grouped
 method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
             | method_call:r "." word:w ~call(r,w,nil)
             | method_call:r "[" expr_list:l "]" ~bracket(r,l)
+            | word:w "(" expr_list?:l ")" ~call(nil,w,l)
             | literal
 
 bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
-          | bin_expr:r "." word:w ~call(r,w,nil)
-          | literal
+         | bin_expr:r "." word:w ~call(r,w,nil)
+         | literal
 
 binary_c = (- binary_operator:o br-sp bin_expr:e { [o, e] })+:bs { bs.flatten }
 binary_send = bin_expr:l binary_c:c { resolve(nil, l, c).first }
 
+assignable = assignable:r "[" expr_list:l "]" ~bracket(r,l)
+           | assignable:r "." word:w ~call(r,w,nil)
+           | identifier
+           | ivar
+
+assign = assignable:i - "=" br-sp call:e ~assign(i, e)
+
 call = unary_operator:o expr:r ~unary(r,o)
-     | binary_send
+     | !template_instance binary_send
+     | func_call_np
      | method_call_np
      | method_call
 
 expr = if
+     | dec
      | def
      | class
+     | trait
+     | var
+     | assign
      | call
 
 grouped = "(" expr:e ")" ~group(e)
 
-root = sequence:e eof { @ast = e }
+root = sequence:e br-sp eof { @ast = e }

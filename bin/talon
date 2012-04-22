@@ -1,0 +1,26 @@
+#!/usr/bin/env ruby
+
+require 'talon/compiler'
+require 'optparse'
+
+
+opts = {}
+
+op = OptionParser.new do |o|
+  o.on "-o", "--output FILE" do |val|
+    opts[:output] = val
+  end
+end
+
+op.parse! ARGV
+
+file = ARGV.shift
+
+unless file
+  puts "Please specify a file to compile"
+  exit 1
+end
+
+comp = Talon::Compiler.new file, opts
+
+comp.compile
