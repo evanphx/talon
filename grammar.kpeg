@@ -86,36 +86,37 @@
 }
 
 %% ast-location = ::Talon::AST
-%% comment = ast Comment(text)
+%% comment = ast Comment($text)
 %% bracket = ast BracketOperator(receiver, arguments)
-%% number = ast Number(value)
-%% strlit = ast String(value)
+%% number = ast Number($value)
+%% strlit = ast String($value)
 %% bool_true = ast True()
 %% bool_false = ast False()
-%% ident = ast Identifier(name)
-%% typed_ident = ast TypedIdentifier(name, type)
-%% templated_name = ast TemplatedName(name, arguments)
-%% method_def = ast MethodDefinition(name, arguments, body, return_type)
-%% method_dec = ast MethodDeclaration(name, arguments, return_type, attribute)
+%% ident = ast Identifier($name)
+%% typed_ident = ast TypedIdentifier($name, type)
+%% templated_name = ast TemplatedName($name, arguments)
+%% method_def = ast MethodDefinition($name, *arguments, body, return_type)
+%% method_dec = ast MethodDeclaration($name, *arguments, return_type, attribute)
 %% class_def = ast ClassDefinition(name, superclass_name, body)
 %% trait_def = ast TraitDefinition(name, body)
-%% seq = ast Sequence(elements)
+%% seq = ast Sequence(*elements)
 %% if_node = ast If(condition, then_body, else_body)
-%% call = ast MethodCall(receiver, method_name, arguments)
+%% call = ast MethodCall(receiver, $method_name, *arguments)
 %% unary = ast UnaryOperator(receiver, operator)
 %% binary = ast BinaryOperator(receiver, argument, operator)
 %% group = ast Grouped(expression)
-%% attr = ast Attribute(name, values)
+%% attr = ast Attribute($name, $values)
 %% var = ast VariableCreation(identifier, type_decl, expression)
 %% var_decl = ast VariableDeclaration(identifier, type_decl)
 %% ivar_decl = ast IVarDeclaration(identifier, type_decl)
-%% named_type = ast NamedType(identifier)
+%% named_type = ast NamedType($identifier)
 %% pointer_type = ast PointerType(inner)
 %% array_type = ast ArrayType(inner)
 %% scoped_type = ast ScopedType(parent, child)
 %% templated_type = ast TemplatedType(base, arguments)
-%% ivar = ast InstanceVariable(name)
+%% ivar = ast InstanceVariable($name)
 %% assign = ast Assignment(variable, value)
+%% ret = ast Return(value)
 
 eof = !.
 
@@ -144,7 +145,27 @@ keyword = "end" | "else"
 
 word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
 
-string = "\"" < /[^"]*/ > "\"" ~strlit(text) 
+num_escapes = < /[0-7]{1,3}/ > { [text.to_i(8)].pack("U") }
+            | "x" < /[a-f\d]{2}/i > { [text.to_i(16)].pack("U") }
+
+string_escapes = "n" { "\n" }
+            | "s" { " " }
+            | "r" { "\r" }
+            | "t" { "\t" }
+            | "v" { "\v" }
+            | "f" { "\f" }
+            | "b" { "\b" }
+            | "a" { "\a" }
+            | "e" { "\e" }
+            | "\\" { "\\" }
+            | "\"" { "\"" }
+            | num_escapes
+            | < . > { text }
+
+string_seq = < /[^\\"]+/ > { text }
+string_body = ("\\" string_escapes:s | string_seq:s)*:ary { Array(ary) }
+
+string = "\"" string_body:s "\"" ~strlit(s.join)
 
 identifier = word:w ~ident(w)
 
@@ -280,6 +301,7 @@ method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
 
 bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
          | bin_expr:r "." word:w ~call(r,w,nil)
+         | word:w "(" expr_list?:l ")" ~call(nil,w,l)
          | literal
 
 binary_c = (- binary_operator:o br-sp bin_expr:e { [o, e] })+:bs { bs.flatten }
@@ -291,6 +313,8 @@ assignable = assignable:r "[" expr_list:l "]" ~bracket(r,l)
            | ivar
 
 assign = assignable:i - "=" br-sp call:e ~assign(i, e)
+
+ret = "return" br-sp expr:e ~ret(e)
 
 call = unary_operator:o expr:r ~unary(r,o)
      | !template_instance binary_send
@@ -305,6 +329,7 @@ expr = if
      | trait
      | var
      | assign
+     | ret
      | call
 
 grouped = "(" expr:e ")" ~group(e)

@@ -7,6 +7,11 @@ KPeg.load File.expand_path("../../../grammar.kpeg", __FILE__), "Talon::Parser"
 
 require 'talon/code_gen'
 
+require 'talon/llvm'
+require 'llvm/execution_engine'
+
+LLVM.init_x86
+
 module Talon
   class Compiler
     def initialize(file, opts)
@@ -29,15 +34,16 @@ module Talon
         parser.raise_error
       end
 
-      cg = Talon::CodeGen.new parser.ast
+      lv = LLVMToplevelVisitor.new
 
-      c_temp = "#{@file}.c"
+      lv.run parser.ast
 
-      File.open c_temp, "w" do |f|
-        cg.output(f)
-      end
+      base = File.basename @file, ".tln"
 
-      sh "gcc -o #{@output} #{c_temp}"
+      lv.mod.write_bitcode "#{base}.bc"
+
+      system "opt -std-compile-opts #{base}.bc | llc -o #{base}.s"
+      system "clang -o #{base} #{base}.s"
     end
   end
 end

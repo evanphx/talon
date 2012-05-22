@@ -1,0 +1,15 @@
+%Import(name="printf")
+dec printf(str:char*, a:int, b:int) : int
+
+def fib(n:int) : int
+  if n < 2
+    return n
+  else
+    return fib(n-1) + fib(n-2)
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  var a = fib(20)
+  printf "fib%d => %d\n".c_str, 20, a
+end

@@ -81,7 +81,7 @@ module Talon
 
             args = @arguments.map { |a| "#{a.type} #{a.name}" }
 
-            o << "extern #{@return_type} #{name}(#{args.join(', ')});\n"
+            o << "extern #{@return_type.identifer} #{name}(#{args.join(', ')});\n"
           end
         end
       end

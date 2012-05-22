@@ -1,0 +1,35 @@
+class Vector[T]
+  var @size : int
+  var @capacity : int
+  var @elements : Array[T]
+
+  def initialize
+    @size = 0
+    @capacity = 10
+    @elements = Array[T].new @capacity
+  end
+
+  def put(e : T)
+    var idx = @size
+
+    @size += 1
+
+    if @size > @capacity
+      resize
+    end
+
+    @elements[idx] = e
+  end
+
+  def get(i : int) : T
+    @elements[i]
+  end
+
+  def resize
+    var new_size = @capacity + 10
+    var n = Array[T].new new_size
+
+    @elements = n
+    @capacity = new_size
+  end
+end

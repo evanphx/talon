@@ -10,6 +10,10 @@ op = OptionParser.new do |o|
   o.on "-o", "--output FILE" do |val|
     opts[:output] = val
   end
+
+  o.on "-a", "Show the AST for the file" do
+    opts[:ast] = true
+  end
 end
 
 op.parse! ARGV

@@ -1,0 +1,6 @@
+%Import(name="puts")
+dec puts(str:char*) : int
+
+def main(argc:int, argv:char**) : int
+  puts "hello world".c_str
+end
