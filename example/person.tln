@@ -19,5 +19,7 @@ def main(argc:int, argv:char**) : int
   var evan = Person(32, "Evan Phoenix")
   evan.show
 
+  reclaim evan
+
   0
 end

@@ -84,6 +84,10 @@ module Talon
       LLVM::Type.pointer llvm_type
     end
 
+    def alloca_type
+      llvm_type
+    end
+
     def find_operation(name)
       if m = @methods[name]
         return m
@@ -163,6 +167,18 @@ module Talon
 
       if t = @top.find_type(c.method_name)
         return t
+      end
+
+      raise "no"
+    end
+
+    def gen_unary(op)
+      if op.operator == "~"
+        if op.receiver.kind_of? AST::MethodCall
+          unless op.receiver.receiver
+            return g(op.receiver)
+          end
+        end
       end
 
       raise "no"
@@ -256,24 +272,52 @@ module Talon
       end
     end
 
-    def gen_call(call)
+    def gen_unary(op)
+      if op.operator == "~"
+        if op.receiver.kind_of? AST::MethodCall
+          mc = op.receiver
+          if !mc.receiver
+            return gen_call(mc, true)
+          end
+        end
+      end
+
+      raise "no"
+    end
+
+    def gen_call(call, alloca=false)
       if r = call.receiver
         t = type_of(r)
         op = t.find_operation call.method_name
 
         op.run self, call
       else
+
         args = call.arguments.map { |a| g(a) }
+
+        if call.method_name == "reclaim"
+          ptr = args[0]
+
+          b.call @top.free, b.bit_cast(ptr, @top.void_ptr)
+          return nil
+        end
 
         if target = @top.lookup(call.method_name)
           b.call @top.lookup(call.method_name), *args
         elsif t = @top.find_type(call.method_name)
-          ptr = b.call @top.malloc, t.byte_size, "alloc.#{call.method_name}"
+          if alloca
+            ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
+          else
+            ptr = b.call @top.malloc, t.byte_size, "alloc.#{call.method_name}"
+          end
+
           obj = b.bit_cast ptr, t.value_type
           if m = t.find_operation("initialize")
             m.invoke self, obj, *args
           end
           obj
+        else
+          raise "No call target found - #{call.method_name}"
         end
       end
     end
@@ -527,6 +571,10 @@ module Talon
     def gen_ivar_decl(decl)
       # noop, handled up front
     end
+
+    def method_name(method_name)
+      "_Tc_#{name}_#{method_name}"
+    end
     
     def gen_method_def(meth)
       if meth.arguments
@@ -543,7 +591,7 @@ module Talon
         ret = LLVM::Type.void
       end
 
-      func = @top.mod.functions.add meth.name, args, ret
+      func = @top.mod.functions.add method_name(meth.name), args, ret
       @methods[meth.name] = func
 
       @talon_type.methods[meth.name] = Method.new func
@@ -584,15 +632,16 @@ module Talon
       @functions = {}
       @uniq_names = 0
 
-      @malloc = @mod.functions.add "malloc", [LLVM::Int64], LLVM::Pointer(LLVM::Int8)
-      @free = @mod.functions.add "free", [LLVM::Pointer(LLVM::Int8)], LLVM::Type.void
+      @void_ptr = LLVM::Pointer(LLVM::Int8)
+      @malloc = @mod.functions.add "malloc", [LLVM::Int64], @void_ptr
+      @free = @mod.functions.add "free", [@void_ptr], LLVM::Type.void
 
       @typer = TypeCalculator.new self
 
       @typer.add_specific "String", @talon_string_type
     end
 
-    attr_reader :malloc
+    attr_reader :malloc, :free, :void_ptr
 
     def name(prefix="tmp")
       "#{prefix}#{@uniq_names += 1}"
