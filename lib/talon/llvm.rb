@@ -107,13 +107,63 @@ module Talon
     end
   end
 
+  class MathOperation
+    def initialize(name, type)
+      @name = name
+      @type = type
+    end
+
+    def calc_type(other)
+      unless @type == other
+        raise "no"
+      end
+
+      @type
+    end
+
+    def run(visit, op)
+      l = visit.g op.receiver
+      r = visit.g op.argument
+
+      case @name
+      when "+"
+        visit.b.add l, r
+      when "-"
+        visit.b.sub l, r
+      when "*"
+        visit.b.mul l, r
+      when "/"
+        visit.b.sdiv l, r
+      when "%"
+        visit.b.srem l, r
+      when "<<"
+        visit.b.shl l, r
+      when ">>"
+        visit.b.ashr l, r
+      else
+        raise "Can't handle #{@name}"
+      end
+    end
+  end
+
+  class IntegerType < Type
+    def find_operation(name)
+      case name
+      when "+", "-", "*", "/", "%", "<<", ">>"
+        MathOperation.new(name, self)
+      else
+        raise "unknown math op - #{name}"
+      end
+    end
+  end
+
   class TypeCalculator < GenVisitor
     def initialize(top)
       @top = top
 
       @registery = {
         'Char' => Type.new("Char"),
-        'Integer' => Type.new("Integer"),
+        'Integer' => IntegerType.new("Integer"),
         'Void' => Type.new("Void", LLVM::Type.void)
       }
 
@@ -169,7 +219,7 @@ module Talon
         return t
       end
 
-      raise "no"
+      raise "no - #{c.method_name}"
     end
 
     def gen_unary(op)
@@ -182,6 +232,21 @@ module Talon
       end
 
       raise "no"
+    end
+
+    def gen_number(n)
+      @registery["Integer"]
+    end
+
+    def gen_binary(op)
+      t = g op.receiver
+      m = t.find_operation op.operator
+
+      m.calc_type g(op.argument)
+    end
+
+    def gen_ident(i)
+      @registery["Integer"]
     end
   end
 
@@ -399,12 +464,17 @@ module Talon
 
         b.sub l, r
       else
+        t = @top.find_type i.receiver
+        if t and op = t.find_operation(i.operator)
+          return op.run(self, i)
+        end
+
         raise "Unsupported operator - #{i.operator}"
       end
     end
 
     def gen_ident(i)
-      b.load @scope[i.name]
+      b.load @scope[i.name], "#{i.name}.loaded"
     end
 
     def gen_number(n)
@@ -619,7 +689,7 @@ module Talon
         return type if looking_for == name
       end
 
-      raise "no ivare named #{looking_for}"
+      raise "no ivar named #{looking_for}"
     end
   end
 
@@ -698,6 +768,8 @@ module Talon
 
           func = @mod.functions.add name, args, ret
           @functions[name] = func
+      
+          @typer.add_func dec.name, dec.return_type
         end
       end
     end
