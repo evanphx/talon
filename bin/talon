@@ -14,6 +14,10 @@ op = OptionParser.new do |o|
   o.on "-a", "Show the AST for the file" do
     opts[:ast] = true
   end
+
+  o.on "--temps", "Keep the temporary files around" do
+    opts[:temps] = true
+  end
 end
 
 op.parse! ARGV

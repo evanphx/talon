@@ -1,0 +1,24 @@
+%Import(name="printf")
+dec printf(str:char*, num:int) : int
+
+%Import(name="atoi")
+dec atoi(str:char*) : int
+
+def main(argc:int, argv:char**) : int
+  var i = atoi "4".c_str
+  var n = 3 + i * 2
+  var m = i - 1
+  var o = i / 2
+  var p = i % 3
+  var j = i >> 2
+  var k = i << 2
+
+  printf "%d\n".c_str, n -- check: 11
+  printf "%d\n".c_str, m -- check: 3
+  printf "%d\n".c_str, o -- check: 2
+  printf "%d\n".c_str, p -- check: 1
+  printf "%d\n".c_str, j -- check: 1
+  printf "%d\n".c_str, k -- check: 16
+
+  return 0
+end

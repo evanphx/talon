@@ -131,7 +131,7 @@ comment = "--" < (!nl .)* > nl ~comment(text)
 
 br-sp = (space | nl)*
 
-expr_end = ("\n" | ";") br-sp
+expr_end = - (comment | ("\n" | ";")) br-sp
 
 number = < ("0" | /[1-9][0-9]*/) > { text }
 
@@ -259,7 +259,7 @@ trait = "trait" sp templated_name:name expr_end "end"
 
 operator_chars = /[~`!#$\%^\&*\\+\-\/?:<=>\|]/
 unary_operator = < operator_chars > { text }
-binary_operator = < operator_chars+ > { text }
+binary_operator = !"--" < operator_chars+ > { text }
 
 ivar = "@" word:w ~ivar(w)
 

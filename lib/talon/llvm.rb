@@ -453,16 +453,6 @@ module Talon
         r = g i.argument
 
         b.icmp :slt, l, r
-      when "+"
-        l = g i.receiver
-        r = g i.argument
-
-        b.add l, r
-      when "-"
-        l = g i.receiver
-        r = g i.argument
-
-        b.sub l, r
       else
         t = @top.find_type i.receiver
         if t and op = t.find_operation(i.operator)
