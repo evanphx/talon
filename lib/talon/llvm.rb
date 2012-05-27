@@ -111,12 +111,14 @@ module Talon
       if m = @methods[name]
         return m
       end
-
-      raise "unknown operation/method - #{name}"
     end
 
     def find_signature(name)
-      @method_signatures[name]
+      if sig = @method_signatures[name]
+        return sig
+      end
+
+      raise "unknown signature for '#{name}'"
     end
   end
 
@@ -247,9 +249,19 @@ module Talon
       @bare = {}
       @ivars = {}
       @ivar_order = []
+
+      @traits = {}
     end
 
-    attr_accessor :type
+    attr_accessor :type, :traits
+
+    def find_trait(name)
+      if t = @traits[name]
+        return t
+      end
+
+      @parent.find_trait(name) if @parent
+    end
 
     def [](e)
       v = @bare[e]
@@ -461,13 +473,28 @@ module Talon
         end
       end
 
-      raise "no"
+      raise "Unsupported unary op - #{op.operator}"
     end
 
     def gen_if_node(i)
       add i.condition
       add i.then_body
       add i.else_body
+
+      @void
+    end
+
+    def gen_trait_def(trait)
+      add trait.body
+
+      @scope.traits[trait.name] = trait
+      @void
+    end
+
+    def gen_inc(inc)
+      t = @scope.find_trait(inc.name)
+
+      add t
 
       @void
     end
@@ -653,7 +680,11 @@ module Talon
 
           b.call target.func, *args
         elsif t = @top.type_by_name(call.method_name)
-          args = call.arguments.map { |a| g(a) }
+          if args = call.arguments
+            args = args.map { |a| g(a) }
+          else
+            args = []
+          end
 
           if alloca
             ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
@@ -933,6 +964,13 @@ module Talon
       inner.gen_and_return meth.body
     end
 
+    def gen_inc(inc)
+      t = @top.traits[inc.name]
+      raise "no trait named #{inc.name}" unless t
+
+      g t.body
+    end
+
     def offset(looking_for)
       @talon_type.ivar_offset looking_for
     end
@@ -961,9 +999,11 @@ module Talon
                            @typer.lookup("Char").pointer
       
       @typer.add_specific "String", @talon_string_type
+
+      @traits = {}
     end
 
-    attr_reader :malloc, :free, :void_ptr
+    attr_reader :malloc, :free, :void_ptr, :traits
 
     def name(prefix="tmp")
       "#{prefix}#{@uniq_names += 1}"
@@ -1050,6 +1090,10 @@ module Talon
       vis = LLVMClassVisitor.new self, cls
       @typer.add_specific vis.name, vis.talon_type
       vis.gen cls.body
+    end
+
+    def gen_trait_def(trait)
+      @traits[trait.name] = trait
     end
 
     def run(ast)

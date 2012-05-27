@@ -117,6 +117,7 @@
 %% ivar = ast InstanceVariable($name)
 %% assign = ast Assignment(variable, value)
 %% ret = ast Return(value)
+%% inc = ast IncludeTrait($name)
 
 eof = !.
 
@@ -257,6 +258,8 @@ trait = "trait" sp templated_name:name expr_end "end"
       | "trait" sp templated_name:name expr_end sequence:e expr_end "end"
         ~trait_def(name,e)
 
+inc = "include" sp word:name ~inc(name)
+
 operator_chars = /[~`!#$\%^\&*\\+\-\/?:<=>\|]/
 unary_operator = < operator_chars > { text }
 binary_operator = !"--" < operator_chars+ > { text }
@@ -330,6 +333,7 @@ expr = if
      | var
      | assign
      | ret
+     | inc
      | call
 
 grouped = "(" expr:e ")" ~group(e)
