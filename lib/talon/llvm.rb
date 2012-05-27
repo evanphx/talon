@@ -408,7 +408,7 @@ module Talon
       end
 
       if rec = c.receiver
-        rt = g rec
+        rt = add rec
         return rt.find_signature(c.method_name).return_type
       end
 
@@ -420,7 +420,7 @@ module Talon
         return t
       end
 
-      if t = @top.find_type(c.method_name)
+      if t = @top.type_by_name(c.method_name)
         return t
       end
 
@@ -606,18 +606,6 @@ module Talon
       e
     end
 
-    def type_of(r)
-      if r.kind_of? AST::InstanceVariable and @self
-        return @self.ivar_type(r.name)
-      elsif r.kind_of? AST::Identifier
-        if v = @locals[r.name]
-          return v
-        end
-      else
-        @top.type_of(r)
-      end
-    end
-
     def gen_unary(op)
       if op.operator == "~"
         if op.receiver.kind_of? AST::MethodCall
@@ -633,7 +621,7 @@ module Talon
 
     def gen_call(call, alloca=false)
       if r = call.receiver
-        t = type_of(r)
+        t = @top.type_of(r)
         op = t.find_operation call.method_name
 
         op.run self, call
@@ -649,10 +637,10 @@ module Talon
         end
 
         if target = @top.lookup(call.method_name)
-          arg_types = call.arguments.map { |a| @top.find_type(a) }
+          arg_types = call.arguments.map { |a| @top.type_of(a) }
 
           args = target.arg_types.zip(call.arguments).map do |req,ast|
-            is = @top.find_type(ast)
+            is = @top.type_of(ast)
             val = g(ast)
 
             unless req == is
@@ -667,7 +655,7 @@ module Talon
           end
 
           b.call target.func, *args
-        elsif t = @top.find_type(call.method_name)
+        elsif t = @top.type_by_name(call.method_name)
           args = call.arguments.map { |a| g(a) }
 
           if alloca
@@ -754,7 +742,7 @@ module Talon
 
         b.icmp :slt, l, r
       else
-        t = @top.find_type i.receiver
+        t = @top.type_of i.receiver
         if t and op = t.find_operation(i.operator)
           return op.run(self, i)
         end
@@ -818,7 +806,7 @@ module Talon
     end
 
     def gen_var(v)
-      t = @top.find_type(v.expression)
+      t = @top.type_of(v.expression)
       r = add_alloca t.value_type, v.identifier
 
       @locals[v.identifier] = t
@@ -903,7 +891,7 @@ module Talon
 
       @methods = {}
 
-      @talon_type = @top.find_type(ast.name)
+      @talon_type = @top.type_by_name(ast.name)
       @type = @talon_type.llvm_type
     end
 
@@ -1007,23 +995,12 @@ module Talon
       @typer.type_of(o).value_type
     end
 
-    def find_type(o)
-      if o.kind_of? String
-        @typer.lookup o
-      else
-        @typer.type_of(o)
-      end
+    def type_of(o)
+      @typer.type_of(o)
     end
 
-    def type_of(t)
-      case t
-      when AST::String
-        @talon_string_type
-      when AST::Identifier
-        find_type t.name
-      else
-        raise "can't handle type - #{t.class}"
-      end
+    def type_by_name(name)
+      @typer.lookup name
     end
 
     attr_reader :mod, :string_type
@@ -1049,11 +1026,11 @@ module Talon
         if attr.name == "Import"
           name = attr.values["name"]
 
-          arg_types = dec.arguments.map { |a| find_type(a) }
+          arg_types = dec.arguments.map { |a| type_of(a) }
 
           args = arg_types.map { |a| a.value_type }
 
-          ret_type = find_type dec.return_type
+          ret_type = type_of dec.return_type
           ret = ret_type.value_type
 
           func = @mod.functions.add name, args, ret
@@ -1066,14 +1043,14 @@ module Talon
 
     def gen_method_def(meth)
       if meth.arguments
-        arg_types = meth.arguments.map { |a| find_type(a) }
+        arg_types = meth.arguments.map { |a| type_of(a) }
       else
         arg_type = []
       end
 
       args = arg_types.map { |a| a.value_type }
 
-      ret_type = find_type meth.return_type
+      ret_type = type_of meth.return_type
       ret =  ret_type.value_type
 
       func = @mod.functions.add meth.name, args, ret
