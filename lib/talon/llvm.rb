@@ -464,9 +464,6 @@ module Talon
       raise "no"
     end
 
-    def add_func(name, type)
-    end
-
     def gen_if_node(i)
       add i.condition
       add i.then_body
@@ -636,7 +633,7 @@ module Talon
           return nil
         end
 
-        if target = @top.lookup(call.method_name)
+        if target = @top.toplevel_function(call.method_name)
           arg_types = call.arguments.map { |a| @top.type_of(a) }
 
           args = target.arg_types.zip(call.arguments).map do |req,ast|
@@ -889,8 +886,6 @@ module Talon
       @top = top
       @ast = ast
 
-      @methods = {}
-
       @talon_type = @top.type_by_name(ast.name)
       @type = @talon_type.llvm_type
     end
@@ -931,16 +926,11 @@ module Talon
       end
 
       func = @top.mod.functions.add method_name(meth.name), args, ret
-      @methods[meth.name] = func
 
       @talon_type.methods[meth.name] = Method.new func
 
-      # @top.typer.add_func meth.name, meth.return_type
-
       inner = LLVMFunctionVisitor.new @top, func, meth, self
       inner.gen_and_return meth.body
-
-      # cleanup func
     end
 
     def offset(looking_for)
@@ -965,14 +955,12 @@ module Talon
       @malloc = @mod.functions.add "malloc", [LLVM::Int64], @void_ptr
       @free = @mod.functions.add "free", [@void_ptr], LLVM::Type.void
 
-      @full_types = TypeCalculator.new self
-      @typer = @full_types
+      @typer = TypeCalculator.new self
 
       @talon_string_type = StringType.new "talon.String", @string_type, \
                            @typer.lookup("Char").pointer
       
-      @full_types.add_specific "String", @talon_string_type
-      # @typer.add_specific "String", @talon_string_type
+      @typer.add_specific "String", @talon_string_type
     end
 
     attr_reader :malloc, :free, :void_ptr
@@ -981,7 +969,7 @@ module Talon
       "#{prefix}#{@uniq_names += 1}"
     end
 
-    def lookup(name)
+    def toplevel_function(name)
       if n = @functions[name]
         return n
       end
@@ -1035,8 +1023,6 @@ module Talon
 
           func = @mod.functions.add name, args, ret
           @functions[name] = Function.new(func, arg_types, ret_type)
-      
-          @typer.add_func dec.name, dec.return_type
         end
       end
     end
@@ -1056,12 +1042,8 @@ module Talon
       func = @mod.functions.add meth.name, args, ret
       @functions[meth.name] = Function.new(func, arg_types, ret_type)
 
-      @typer.add_func meth.name, meth.return_type
-
       inner = LLVMFunctionVisitor.new self, func, meth
       inner.gen_and_return meth.body
-
-      # cleanup func
     end
 
     def gen_class_def(cls)
@@ -1070,18 +1052,8 @@ module Talon
       vis.gen cls.body
     end
 
-    def cleanup(func)
-     engine = LLVM::JITCompiler.new(@mod)
-     passm  = LLVM::FunctionPassManager.new(engine, @mod)
-
-     passm.simplifycfg!
-     passm.instcombine!
-
-     passm.run func
-    end
-
     def run(ast)
-      @full_types.add ast
+      @typer.add ast
 
       gen ast
 
