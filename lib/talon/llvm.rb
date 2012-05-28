@@ -34,6 +34,8 @@ module Talon
       @type = type
     end
 
+    attr_reader :name
+
     def pointer
       @pointer ||= PointerType.new(self)
     end
@@ -251,9 +253,10 @@ module Talon
       @ivar_order = []
 
       @traits = {}
+      @templates = {}
     end
 
-    attr_accessor :type, :traits
+    attr_accessor :type, :traits, :templates
 
     def find_trait(name)
       if t = @traits[name]
@@ -261,6 +264,14 @@ module Talon
       end
 
       @parent.find_trait(name) if @parent
+    end
+
+    def find_template(name)
+      if t = @templates[name]
+        return t
+      end
+
+      @parent.find_template(name) if @parent
     end
 
     def [](e)
@@ -307,10 +318,12 @@ module Talon
 
       bool = BooleanType.new("Boolean")
       @void = Type.new("Void", LLVM::Type.void)
+      int = IntegerType.new("Integer", LLVM::Int32, bool)
 
       @registery = {
         'Char' => Type.new("Char"),
-        'Integer' => IntegerType.new("Integer", LLVM::Int32, bool),
+        'Integer' => int,
+        'int' => int,
         'Void' => @void,
         'Boolean' => bool
       }
@@ -404,6 +417,10 @@ module Talon
       when "void"
         @registery["Void"]
       else
+        if t = @scope[nt.identifier]
+          return t
+        end
+
         raise "unknown type - #{nt.identifier}"
       end
     end
@@ -439,6 +456,82 @@ module Talon
       raise "no - #{c.method_name}"
     end
 
+    class ExpandedTemplate
+      def initialize(ast, type)
+        @ast = ast
+        @type = type
+      end
+
+      attr_reader :ast, :type
+    end
+
+    def expand_template(template, concrete)
+      if concrete == "int"
+        t = @registery['Integer']
+      else
+        raise "unknown concrete type - #{concrete}"
+      end
+
+      # Copy so the type entries for the AST are unique
+      original = template
+      template = Marshal.load Marshal.dump(template)
+
+      name = @top.expanded_template_name(template.name, t)
+
+      types = []
+
+      cls_type = nil
+
+      new_scope do |s|
+        s[template.name.arguments.first.name] = t
+
+        ivars = []
+
+        template.body.elements.each do |e|
+          if e.kind_of? AST::IVarDeclaration
+            t = add e.type_decl
+            types << t.value_type
+
+            ivars << [e.identifier, t]
+            s.add_ivar e.identifier, t
+          end
+        end
+
+        lltype = LLVM::Type.struct types, false, name
+        cls_type = ReferenceType.new(name, lltype)
+
+        ivars.each do |i_name, type|
+          cls_type.add_ivar i_name, type
+        end
+
+        s.type = cls_type
+
+        s[name] = cls_type
+
+        @registery[name] = cls_type
+
+        add template.body
+      end
+
+      @scope[name] = cls_type
+
+      @top.add_expanded_template original, ExpandedTemplate.new(template, cls_type)
+
+      cls_type
+    end
+
+    def gen_templated_instance(t)
+      if args = t.arguments
+        args.each { |a| add(a) }
+      end
+
+      if template = @scope.find_template(t.name)
+        return expand_template(template, t.type)
+      end
+
+      raise "couldn't find a template to expand - #{t.name}"
+    end
+
     def gen_strlit(s)
       @registery['String']
     end
@@ -466,10 +559,13 @@ module Talon
 
     def gen_unary(op)
       if op.operator == "~"
-        if op.receiver.kind_of? AST::MethodCall
+        case op.receiver
+        when AST::MethodCall
           unless op.receiver.receiver
             return add(op.receiver)
           end
+        when AST::TemplatedInstance
+          return add(op.receiver)
         end
       end
 
@@ -499,7 +595,16 @@ module Talon
       @void
     end
 
+    def handle_class_template_def(cls)
+      @scope.templates[cls.name.name] = cls
+      @void
+    end
+
     def gen_class_def(cls)
+      if cls.name.kind_of? AST::TemplatedName
+        return handle_class_template_def(cls)
+      end
+
       types = []
 
       cls_type = nil
@@ -632,11 +737,14 @@ module Talon
 
     def gen_unary(op)
       if op.operator == "~"
-        if op.receiver.kind_of? AST::MethodCall
+        case op.receiver
+        when AST::MethodCall
           mc = op.receiver
           if !mc.receiver
             return gen_call(mc, true)
           end
+        when AST::TemplatedInstance
+          return gen_templated_instance(op.receiver, true)
         end
       end
 
@@ -700,6 +808,32 @@ module Talon
         else
           raise "No call target found - #{call.method_name}"
         end
+      end
+    end
+
+    def gen_templated_instance(ti, alloca=false)
+      name = @top.template_name(ti)
+
+      if t = @top.type_by_name(name)
+        if args = ti.arguments
+          args = args.map { |a| g(a) }
+        else
+          args = []
+        end
+
+        if alloca
+          ptr = b.alloca t.alloca_type
+        else
+          ptr = b.call @top.malloc, t.byte_size
+        end
+
+        obj = b.bit_cast ptr, t.value_type
+        if m = t.find_operation("initialize")
+          m.invoke self, obj, *args
+        end
+        obj
+      else
+        raise "Unknown type - #{name}"
       end
     end
 
@@ -849,6 +983,8 @@ module Talon
       raise "No self" unless @self
       pos = @self.offset(name)
 
+      raise "Unable to find ivar '#{name}'" unless pos
+
       b.gep @self_value, [LLVM::Int(0), LLVM::Int(pos)]
     end
 
@@ -899,7 +1035,7 @@ module Talon
     def run(visit, node)
       recv = visit.g(node.receiver)
       if args = node.arguments
-        args = node.arguments.map { |a| g(a) }
+        args = node.arguments.map { |a| visit.g(a) }
       else
         args = []
       end
@@ -913,18 +1049,23 @@ module Talon
   end
 
   class LLVMClassVisitor < LLVMVisitor
-    def initialize(top, ast)
+    def initialize(top, ast, type=nil)
       @top = top
       @ast = ast
 
-      @talon_type = @top.type_by_name(ast.name)
+      if type
+        @talon_type = type
+      else
+        @talon_type = @top.type_by_name(ast.name)
+      end
+
       @type = @talon_type.llvm_type
     end
 
     attr_reader :type, :talon_type
 
     def name
-      @ast.name
+      @type.name
     end
 
     def gen_seq(seq)
@@ -1001,9 +1142,15 @@ module Talon
       @typer.add_specific "String", @talon_string_type
 
       @traits = {}
+
+      @expanded_templates = Hash.new { |h,k| h[k] = [] }
     end
 
     attr_reader :malloc, :free, :void_ptr, :traits
+
+    def add_expanded_template(orig, expan)
+      @expanded_templates[orig] << expan
+    end
 
     def name(prefix="tmp")
       "#{prefix}#{@uniq_names += 1}"
@@ -1029,6 +1176,38 @@ module Talon
 
     def type_by_name(name)
       @typer.lookup name
+    end
+
+    def template_name(name)
+      case name
+      when String
+        name
+      when AST::TemplatedName
+        args = name.arguments.map { |a| template_name(a) }
+        "#{name.name}<#{args.join(',')}>"
+      when AST::TemplatedInstance
+        "#{name.name}<#{@typer.lookup(name.type).name}>"
+      when AST::Identifier
+        name.name
+      else
+        raise "Can't handle a #{name}"
+      end
+    end
+
+    def expanded_template_name(name, *concrete)
+      case name
+      when String
+        name
+      when AST::TemplatedName
+        args = concrete.map { |e| e.name }
+        "#{name.name}<#{args.join(',')}>"
+      when AST::TemplatedInstance
+        "#{name.name}<#{name.type}>"
+      when AST::Identifier
+        name.name
+      else
+        raise "Can't handle a #{name}"
+      end
     end
 
     attr_reader :mod, :string_type
@@ -1087,9 +1266,16 @@ module Talon
     end
 
     def gen_class_def(cls)
-      vis = LLVMClassVisitor.new self, cls
-      @typer.add_specific vis.name, vis.talon_type
-      vis.gen cls.body
+      if cls.name.kind_of? AST::TemplatedName
+        @expanded_templates[cls].each do |temp|
+          vis = LLVMClassVisitor.new self, temp.ast, temp.type
+          vis.gen temp.ast.body
+        end
+      else
+        vis = LLVMClassVisitor.new self, cls
+        @typer.add_specific vis.name, vis.talon_type
+        vis.gen cls.body
+      end
     end
 
     def gen_trait_def(trait)

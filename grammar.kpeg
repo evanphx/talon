@@ -118,6 +118,7 @@
 %% assign = ast Assignment(variable, value)
 %% ret = ast Return(value)
 %% inc = ast IncludeTrait($name)
+%% templated_instance = ast TemplatedInstance(name, type, *arguments)
 
 eof = !.
 
@@ -300,6 +301,8 @@ method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
             | method_call:r "." word:w ~call(r,w,nil)
             | method_call:r "[" expr_list:l "]" ~bracket(r,l)
             | word:w "(" expr_list?:l ")" ~call(nil,w,l)
+            | word:w "<" word:t ">" "(" expr_list?:l ")"
+                ~templated_instance(w,t,l)
             | literal
 
 bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
