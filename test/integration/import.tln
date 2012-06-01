@@ -1,0 +1,6 @@
+import io
+
+def main(argc: int, argv: char**) : int
+  io.puts "Hello World" -- check: Hello World
+  return 0
+end

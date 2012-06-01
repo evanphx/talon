@@ -1,0 +1,27 @@
+%Import(name="puts")
+dec puts(str:char*) : void
+
+trait Show
+  def show : void
+    puts "In show".c_str
+  end
+end
+
+class Person
+  include Show
+
+  var @name : string
+
+  def show2 : void
+    puts "In show2".c_str
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  var p = ~Person()
+
+  p.show -- check: In show
+  p.show2 -- check: In show2
+
+  return 0
+end

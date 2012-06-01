@@ -306,30 +306,42 @@ module Talon
     def initialize(name, args, ret)
       @name = name
       @arg_types = args
-      @return_type = ret;
+      @return_type = ret
     end
 
     attr_reader :name, :arg_types, :return_type
   end
 
   class TypeCalculator < GenVisitor
-    def initialize(top)
-      @top = top
+    def initialize(context, global)
+      @ctx = context
+
+      @global = global
+
+      @scope = Scope.new global
+      @types = {}
+    end
+
+    attr_reader :scope
+
+    def self.global_scope(ctx)
+      s = Scope.new
 
       bool = BooleanType.new("Boolean")
-      @void = Type.new("Void", LLVM::Type.void)
+      void = Type.new("Void", LLVM::Type.void)
       int = IntegerType.new("Integer", LLVM::Int32, bool)
+      char = Type.new("Char")
 
-      @registery = {
-        'Char' => Type.new("Char"),
-        'Integer' => int,
-        'int' => int,
-        'Void' => @void,
-        'Boolean' => bool
-      }
+      string = StringType.new "talon.String", ctx.string_type, char.pointer
 
-      @scope = Scope.new
-      @types = {}
+      s['Char'] = char
+      s['Integer'] = int
+      s['int'] = int
+      s['Void'] = void
+      s['Boolean'] = bool
+      s['String'] = string
+
+      s
     end
 
     def new_scope
@@ -348,7 +360,7 @@ module Talon
     end
 
     def add_specific(name, type)
-      @registery[name] = type
+      @scope[name] = type
     end
 
     def type_of(ast)
@@ -356,7 +368,7 @@ module Talon
     end
 
     def lookup(name)
-      @registery[name]
+      @scope[name]
     end
 
     def gen_seq(seq)
@@ -409,13 +421,13 @@ module Talon
     def gen_named_type(nt)
       case nt.identifier
       when "char"
-        @registery['Char']
+        @scope['Char']
       when "int"
-        @registery['Integer']
+        @scope['Integer']
       when "string"
-        @registery['String']
+        @scope['String']
       when "void"
-        @registery["Void"]
+        @scope["Void"]
       else
         if t = @scope[nt.identifier]
           return t
@@ -436,6 +448,15 @@ module Talon
         args.each { |a| add(a) }
       end
 
+      if c.receiver.kind_of? AST::Identifier
+        name = c.receiver.name
+        s = @scope[name]
+        if s.kind_of? LLVMToplevelVisitor
+          obj = s.scope[c.method_name]
+          return obj if obj.kind_of? Type
+        end
+      end
+
       if rec = c.receiver
         rt = add rec
         return rt.find_signature(c.method_name).return_type
@@ -449,7 +470,7 @@ module Talon
         return t
       end
 
-      if t = @top.type_by_name(c.method_name)
+      if t = lookup(c.method_name)
         return t
       end
 
@@ -467,7 +488,7 @@ module Talon
 
     def expand_template(template, concrete)
       if concrete == "int"
-        t = @registery['Integer']
+        t = @scope['Integer']
       else
         raise "unknown concrete type - #{concrete}"
       end
@@ -476,7 +497,7 @@ module Talon
       original = template
       template = Marshal.load Marshal.dump(template)
 
-      name = @top.expanded_template_name(template.name, t)
+      name = @ctx.expanded_template_name(template.name, t)
 
       types = []
 
@@ -508,14 +529,14 @@ module Talon
 
         s[name] = cls_type
 
-        @registery[name] = cls_type
+        @scope[name] = cls_type
 
         add template.body
       end
 
       @scope[name] = cls_type
 
-      @top.add_expanded_template original, ExpandedTemplate.new(template, cls_type)
+      @ctx.add_expanded_template original, ExpandedTemplate.new(template, cls_type)
 
       cls_type
     end
@@ -533,7 +554,7 @@ module Talon
     end
 
     def gen_strlit(s)
-      @registery['String']
+      @scope['String']
     end
 
     def gen_binary(op)
@@ -549,7 +570,7 @@ module Talon
     end
 
     def gen_number(n)
-      @registery['Integer']
+      @scope['Integer']
     end
 
     def gen_ret(n)
@@ -633,7 +654,7 @@ module Talon
 
         s[cls.name] = cls_type
 
-        @registery[cls.name] = cls_type
+        @scope[cls.name] = cls_type
 
         add cls.body
       end
@@ -657,6 +678,39 @@ module Talon
       end
 
       t
+    end
+
+    def import(path)
+      str = File.read path
+      parser = Talon::Parser.new str
+
+      unless parser.parse
+        parser.raise_error
+      end
+
+      lv = LLVMToplevelVisitor.new @ctx, @global
+
+      lv.run parser.ast
+
+      lv
+    end
+
+    def gen_import(imp)
+      @ctx.import_paths.each do |root|
+        path = File.join(root, *imp.segements) + ".tln"
+        if File.file? path
+          lv = import path
+
+          name = imp.segements.first
+
+          @scope[name] = lv
+          # @top.imports[name] = lv
+
+          return @void
+        end
+      end
+
+      raise "Unable to find #{imp.segements.join('.')} to import"
     end
   end
 
@@ -753,6 +807,19 @@ module Talon
 
     def gen_call(call, alloca=false)
       if r = call.receiver
+        if r.kind_of? AST::Identifier
+          s = @top.scope[r.name]
+          if s.kind_of? LLVMToplevelVisitor
+            obj = s.functions[call.method_name]
+
+            raise "bad scope'd function" unless obj
+
+            args = call.arguments.map { |a| g(a) }
+
+            return b.call(obj.func, *args)
+          end
+        end
+
         t = @top.type_of(r)
         op = t.find_operation call.method_name
 
@@ -764,7 +831,7 @@ module Talon
 
           ptr = args[0]
 
-          b.call @top.free, b.bit_cast(ptr, @top.void_ptr)
+          b.call @top.context.free, b.bit_cast(ptr, @top.context.void_ptr)
           return nil
         end
 
@@ -797,7 +864,7 @@ module Talon
           if alloca
             ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
           else
-            ptr = b.call @top.malloc, t.byte_size, "alloc.#{call.method_name}"
+            ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
           end
 
           obj = b.bit_cast ptr, t.value_type
@@ -824,7 +891,7 @@ module Talon
         if alloca
           ptr = b.alloca t.alloca_type
         else
-          ptr = b.call @top.malloc, t.byte_size
+          ptr = b.call @top.context.malloc, t.byte_size
         end
 
         obj = b.bit_cast ptr, t.value_type
@@ -846,11 +913,11 @@ module Talon
       c_str.linkage = :private
       c_str.global_constant = 1
 
-      str = @top.mod.globals.add @top.string_type, @top.name("string")
+      str = @top.mod.globals.add @top.context.string_type, @top.name("string")
       str.linkage = :internal
       siz = LLVM::ConstantInt32.from_i s.size
       dat = c_str.gep LLVM::ConstantInt32.from_i(0), LLVM::ConstantInt32.from_i(0)
-      init = LLVM::ConstantStruct.const_named @top.string_type, [siz, dat]
+      init = LLVM::ConstantStruct.const_named @top.context.string_type, [siz, dat]
       str.initializer = init
       str.alignment = 8
 
@@ -1121,45 +1188,82 @@ module Talon
     end
   end
 
-  class LLVMToplevelVisitor < LLVMVisitor
+  class LLVMContext
     def initialize
       @mod = LLVM::Module.new("talon")
       data_pointer = LLVM::Type.pointer(LLVM::Int8)
       elems = [LLVM::Int32, data_pointer]
       @string_type = LLVM::Type.struct elems, false, "talon.String"
-      @functions = {}
-      @uniq_names = 0
 
       @void_ptr = LLVM::Pointer(LLVM::Int8)
       @malloc = @mod.functions.add "malloc", [LLVM::Int64], @void_ptr
       @free = @mod.functions.add "free", [@void_ptr], LLVM::Type.void
 
-      @typer = TypeCalculator.new self
-
-      @talon_string_type = StringType.new "talon.String", @string_type, \
-                           @typer.lookup("Char").pointer
-      
-      @typer.add_specific "String", @talon_string_type
-
-      @traits = {}
-
+      @uniq_names = 0
+      @import_paths = ["lib"]
       @expanded_templates = Hash.new { |h,k| h[k] = [] }
+
     end
 
-    attr_reader :malloc, :free, :void_ptr, :traits
+    attr_reader :typer
+    attr_reader :malloc, :free, :void_ptr, :traits, :import_paths, :mod
+    attr_reader :string_type, :expanded_templates
+
+    def name(prefix="tmp")
+      "#{prefix}#{@uniq_names += 1}"
+    end
+
+    def expanded_template_name(name, *concrete)
+      case name
+      when String
+        name
+      when AST::TemplatedName
+        args = concrete.map { |e| e.name }
+        "#{name.name}<#{args.join(',')}>"
+      when AST::TemplatedInstance
+        "#{name.name}<#{name.type}>"
+      when AST::Identifier
+        name.name
+      else
+        raise "Can't handle a #{name}"
+      end
+    end
 
     def add_expanded_template(orig, expan)
       @expanded_templates[orig] << expan
     end
 
-    def name(prefix="tmp")
-      "#{prefix}#{@uniq_names += 1}"
+  end
+
+  class LLVMToplevelVisitor < LLVMVisitor
+    def initialize(ctx, global_scope)
+      @context = ctx
+      @global_scope = global_scope
+
+      @mod = @context.mod
+
+      @typer = TypeCalculator.new ctx, global_scope
+
+      @traits = {}
+
+      @functions = {}
+      @imports = {}
+    end
+
+    attr_reader :context, :imports, :mod, :typer, :traits, :functions
+
+    def scope
+      @typer.scope
     end
 
     def toplevel_function(name)
       if n = @functions[name]
         return n
       end
+    end
+
+    def name(prefix="tmp")
+      @context.name prefix
     end
 
     def llvm_type(o)
@@ -1193,24 +1297,6 @@ module Talon
         raise "Can't handle a #{name}"
       end
     end
-
-    def expanded_template_name(name, *concrete)
-      case name
-      when String
-        name
-      when AST::TemplatedName
-        args = concrete.map { |e| e.name }
-        "#{name.name}<#{args.join(',')}>"
-      when AST::TemplatedInstance
-        "#{name.name}<#{name.type}>"
-      when AST::Identifier
-        name.name
-      else
-        raise "Can't handle a #{name}"
-      end
-    end
-
-    attr_reader :mod, :string_type
 
     def gen_seq(seq)
       seq.elements.each do |e|
@@ -1267,7 +1353,7 @@ module Talon
 
     def gen_class_def(cls)
       if cls.name.kind_of? AST::TemplatedName
-        @expanded_templates[cls].each do |temp|
+        @context.expanded_templates[cls].each do |temp|
           vis = LLVMClassVisitor.new self, temp.ast, temp.type
           vis.gen temp.ast.body
         end
@@ -1280,6 +1366,16 @@ module Talon
 
     def gen_trait_def(trait)
       @traits[trait.name] = trait
+    end
+
+    def gen_import(imp)
+      name = imp.segements.first
+
+      lv = scope[name]
+
+      raise "Typer didn't inject sub-file properly" unless lv
+
+      nil
     end
 
     def run(ast)

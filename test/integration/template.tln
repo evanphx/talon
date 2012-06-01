@@ -1,0 +1,24 @@
+%Import(name="printf")
+dec printf(str:char*, num:int) : int
+
+class Holder<T>
+  var @value : T
+
+  def get : T
+    return @value
+  end
+
+  def set(val: T) : void
+    @value = val
+  end
+end
+
+def main(argc: int, argv: char**) : int
+  var h = ~Holder<int>()
+
+  h.set 8
+
+  printf "%d\n".c_str, h.get -- check: 8
+
+  return 0
+end

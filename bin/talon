@@ -15,8 +15,16 @@ op = OptionParser.new do |o|
     opts[:ast] = true
   end
 
+  o.on "-c", "Check the file only, don't generate code" do
+    opts[:check] = true
+  end
+
   o.on "--temps", "Keep the temporary files around" do
     opts[:temps] = true
+  end
+
+  o.on "-I libs", "Add paths to the library lookup paths" do |v|
+    opts[:libs] = v.split(":")
   end
 end
 

@@ -37,6 +37,7 @@ files.each do |f|
   end
 
   File.unlink exe
+
 end
 
 exit 1 if fails

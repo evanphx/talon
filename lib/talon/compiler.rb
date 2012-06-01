@@ -34,9 +34,17 @@ module Talon
         parser.raise_error
       end
 
-      lv = LLVMToplevelVisitor.new
+      ctx = LLVMContext.new
+      glb = TypeCalculator.global_scope(ctx)
+      lv = LLVMToplevelVisitor.new(ctx, glb)
+
+      if l = @options[:libs]
+        ctx.import_paths.concat l
+      end
 
       lv.run parser.ast
+
+      return if @options[:check]
 
       base = File.basename @file, ".tln"
 
