@@ -805,6 +805,26 @@ module Talon
       raise "no"
     end
 
+    def instantiate_type(call, t, alloca=false)
+      if args = call.arguments
+        args = args.map { |a| g(a) }
+      else
+        args = []
+      end
+
+      if alloca
+        ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
+      else
+        ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
+      end
+
+      obj = b.bit_cast ptr, t.value_type
+      if m = t.find_operation("initialize")
+        m.invoke self, obj, *args
+      end
+      obj
+    end
+
     def gen_call(call, alloca=false)
       if r = call.receiver
         if r.kind_of? AST::Identifier
@@ -820,23 +840,7 @@ module Talon
             t = s.scope[call.method_name]
 
             if t.kind_of? Type
-              if args = call.arguments
-                args = args.map { |a| g(a) }
-              else
-                args = []
-              end
-
-              if alloca
-                ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
-              else
-                ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
-              end
-
-              obj = b.bit_cast ptr, t.value_type
-              if m = t.find_operation("initialize")
-                m.invoke self, obj, *args
-              end
-              return obj
+              return instantiate_type(call, t, alloca)
             end
 
             raise "Unable to resolve idenifier in package - #{call.method_name}"
@@ -878,23 +882,7 @@ module Talon
 
           b.call target.func, *args
         elsif t = @top.type_by_name(call.method_name)
-          if args = call.arguments
-            args = args.map { |a| g(a) }
-          else
-            args = []
-          end
-
-          if alloca
-            ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
-          else
-            ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
-          end
-
-          obj = b.bit_cast ptr, t.value_type
-          if m = t.find_operation("initialize")
-            m.invoke self, obj, *args
-          end
-          obj
+          return instantiate_type(call, t, alloca)
         else
           raise "No call target found - #{call.method_name}"
         end
