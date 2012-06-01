@@ -1,0 +1,7 @@
+import person
+
+def main(argc: int, argv: char**) : int
+  var evan = person.Person(32, "evan")
+  evan.show -- check: evan: 32
+  return 0
+end

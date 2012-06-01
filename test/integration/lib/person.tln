@@ -1,0 +1,17 @@
+%Import(name="printf")
+dec printf(str:char*, a:char*, b:int) : int
+
+class Person
+  var @age : int
+  var @name : string
+
+  def initialize(age:int, name:string) : void
+    @age = age
+    @name = name
+  end
+
+  def show : void
+    printf "%s: %d\n".c_str, @name.c_str, @age
+  end
+end
+

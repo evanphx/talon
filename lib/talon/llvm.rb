@@ -812,11 +812,34 @@ module Talon
           if s.kind_of? LLVMToplevelVisitor
             obj = s.functions[call.method_name]
 
-            raise "bad scope'd function" unless obj
+            if obj
+              args = call.arguments.map { |a| g(a) }
+              return b.call(obj.func, *args)
+            end
 
-            args = call.arguments.map { |a| g(a) }
+            t = s.scope[call.method_name]
 
-            return b.call(obj.func, *args)
+            if t.kind_of? Type
+              if args = call.arguments
+                args = args.map { |a| g(a) }
+              else
+                args = []
+              end
+
+              if alloca
+                ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
+              else
+                ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
+              end
+
+              obj = b.bit_cast ptr, t.value_type
+              if m = t.find_operation("initialize")
+                m.invoke self, obj, *args
+              end
+              return obj
+            end
+
+            raise "Unable to resolve idenifier in package - #{call.method_name}"
           end
         end
 
