@@ -245,6 +245,7 @@ module Talon
 
   class Scope
     def initialize(parent=nil)
+      @name = nil
       @type = nil
       @parent = parent
 
@@ -256,7 +257,7 @@ module Talon
       @templates = {}
     end
 
-    attr_accessor :type, :traits, :templates
+    attr_accessor :type, :traits, :templates, :name
 
     def find_trait(name)
       if t = @traits[name]
@@ -286,11 +287,11 @@ module Talon
     end
 
     def add_ivar(name, type)
-      @ivars[name] = type
+      @bare["@#{name}"] = type
     end
 
     def ivar(name)
-      @ivars[name]
+      self["@#{name}"]
     end
 
     def add_method(sig)
@@ -310,6 +311,27 @@ module Talon
     end
 
     attr_reader :name, :arg_types, :return_type
+  end
+
+  class Template
+    def initialize(ast)
+      @ast = ast
+      @instances = []
+    end
+
+    attr_reader :ast, :instances
+
+    def name
+      @ast.name
+    end
+
+    def arguments
+      @ast.name.arguments
+    end
+
+    def body
+      @ast.body
+    end
   end
 
   class TypeCalculator < GenVisitor
@@ -348,7 +370,9 @@ module Talon
       s = Scope.new @scope
 
       begin
-        old_scope, @scope = @scope, s
+        old_scope = @scope
+        @scope = s
+
         yield s
       ensure
         @scope = old_scope
@@ -390,17 +414,20 @@ module Talon
     def gen_method_def(meth)
       arg_types = []
 
-      if args = meth.arguments
-        args.each do |a|
-          t = @scope[a.name] = add(a)
-          arg_types << t
+      outer = @scope
+
+      new_scope do |s|
+        if args = meth.arguments
+          args.each do |a|
+            t = s[a.name] = add(a)
+            arg_types << t
+          end
         end
-      end
 
-      @scope.add_method Signature.new(meth.name, arg_types, 
+        outer.add_method Signature.new(meth.name, arg_types, 
                                       add(meth.return_type))
-
-      add meth.body
+        add meth.body
+      end
 
       @void
     end
@@ -478,12 +505,13 @@ module Talon
     end
 
     class ExpandedTemplate
-      def initialize(ast, type)
+      def initialize(ast, type, concrete)
         @ast = ast
         @type = type
+        @concrete = concrete
       end
 
-      attr_reader :ast, :type
+      attr_reader :ast, :type, :concrete
     end
 
     def expand_template(template, concrete)
@@ -494,8 +522,7 @@ module Talon
       end
 
       # Copy so the type entries for the AST are unique
-      original = template
-      template = Marshal.load Marshal.dump(template)
+      ast = Marshal.load Marshal.dump(template.ast)
 
       name = @ctx.expanded_template_name(template.name, t)
 
@@ -504,7 +531,7 @@ module Talon
       cls_type = nil
 
       new_scope do |s|
-        s[template.name.arguments.first.name] = t
+        s[template.arguments.first.name] = t
 
         ivars = []
 
@@ -529,14 +556,12 @@ module Talon
 
         s[name] = cls_type
 
-        @scope[name] = cls_type
-
         add template.body
       end
 
       @scope[name] = cls_type
 
-      @ctx.add_expanded_template original, ExpandedTemplate.new(template, cls_type)
+      template.instances << ExpandedTemplate.new(template, cls_type, [t])
 
       cls_type
     end
@@ -546,8 +571,11 @@ module Talon
         args.each { |a| add(a) }
       end
 
-      if template = @scope.find_template(t.name)
-        return expand_template(template, t.type)
+      obj = @scope[t.name]
+      if obj.kind_of? Template
+        return expand_template(obj, t.type)
+      else
+        raise "Attempted to expand non-template '#{t.name}'"
       end
 
       raise "couldn't find a template to expand - #{t.name}"
@@ -617,7 +645,7 @@ module Talon
     end
 
     def handle_class_template_def(cls)
-      @scope.templates[cls.name.name] = cls
+      @scope[cls.name.name] = Template.new(cls)
       @void
     end
 
@@ -630,10 +658,20 @@ module Talon
 
       cls_type = nil
 
+      if pkg = @scope.name
+        cls_name = "#{pkg}.#{cls.name}"
+      else
+        cls_name = cls.name
+      end
+
       new_scope do |s|
         ivars = []
 
-        cls.body.elements.each do |e|
+        elements = (AST::Sequence === cls.body ? 
+                     cls.body.elements : 
+                     [cls.body])
+
+        elements.each do |e|
           if e.kind_of? AST::IVarDeclaration
             t = add e.type_decl
             types << t.value_type
@@ -643,8 +681,8 @@ module Talon
           end
         end
 
-        lltype = LLVM::Type.struct types, false, cls.name
-        cls_type = ReferenceType.new(cls.name, lltype)
+        lltype = LLVM::Type.struct types, false, cls_name
+        cls_type = ReferenceType.new(cls_name, lltype)
 
         ivars.each do |name, type|
           cls_type.add_ivar name, type
@@ -711,6 +749,11 @@ module Talon
       end
 
       raise "Unable to find #{imp.segements.join('.')} to import"
+    end
+
+    def gen_package(pkg)
+      @scope.name = pkg.segments.join(".")
+      @void
     end
   end
 
@@ -850,6 +893,10 @@ module Talon
         t = @top.type_of(r)
         op = t.find_operation call.method_name
 
+        unless op
+          raise "Unknow operation '#{call.method_name}' on '#{t.name}'"
+        end
+
         op.run self, call
       else
 
@@ -881,18 +928,18 @@ module Talon
           end
 
           b.call target.func, *args
-        elsif t = @top.type_by_name(call.method_name)
-          return instantiate_type(call, t, alloca)
-        else
+        else 
+          t = @top.type_by_name(call.method_name)
+          if t and t.kind_of? ReferenceType
+            return instantiate_type(call, t, alloca)
+          end
           raise "No call target found - #{call.method_name}"
         end
       end
     end
 
     def gen_templated_instance(ti, alloca=false)
-      name = @top.template_name(ti)
-
-      if t = @top.type_by_name(name)
+      if t = @top.typer.type_of(ti)
         if args = ti.arguments
           args = args.map { |a| g(a) }
         else
@@ -1290,7 +1337,9 @@ module Talon
     end
 
     def type_by_name(name)
-      @typer.lookup name
+      t = @typer.lookup name
+      return t if t.kind_of? Type
+      nil
     end
 
     def template_name(name)
@@ -1338,7 +1387,7 @@ module Talon
           ret = ret_type.value_type
 
           func = @mod.functions.add name, args, ret
-          @functions[name] = Function.new(func, arg_types, ret_type)
+          @functions[dec.name] = Function.new(func, arg_types, ret_type)
         end
       end
     end
@@ -1355,7 +1404,13 @@ module Talon
       ret_type = type_of meth.return_type
       ret =  ret_type.value_type
 
-      func = @mod.functions.add meth.name, args, ret
+      if pkg = @typer.scope.name
+        meth_name = "#{pkg}.#{meth.name}"
+      else
+        meth_name = meth.name
+      end
+
+      func = @mod.functions.add meth_name, args, ret
       @functions[meth.name] = Function.new(func, arg_types, ret_type)
 
       inner = LLVMFunctionVisitor.new self, func, meth
@@ -1364,7 +1419,12 @@ module Talon
 
     def gen_class_def(cls)
       if cls.name.kind_of? AST::TemplatedName
-        @context.expanded_templates[cls].each do |temp|
+        t = @typer.scope[cls.name.name]
+        unless t.kind_of? Template
+          raise "Phase 1 failure, didn't setup Template object"
+        end
+
+        t.instances.each do |temp|
           vis = LLVMClassVisitor.new self, temp.ast, temp.type
           vis.gen temp.ast.body
         end
@@ -1386,6 +1446,10 @@ module Talon
 
       raise "Typer didn't inject sub-file properly" unless lv
 
+      nil
+    end
+
+    def gen_package(pkg)
       nil
     end
 

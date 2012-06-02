@@ -120,6 +120,7 @@
 %% inc = ast IncludeTrait($name)
 %% templated_instance = ast TemplatedInstance(name, type, *arguments)
 %% import = ast Import(*segements)
+%% package = ast Package(*segments)
 
 eof = !.
 
@@ -262,6 +263,7 @@ trait = "trait" sp templated_name:name expr_end "end"
 
 inc = "include" sp word:name ~inc(name)
 import = "import" sp (word:w ".")*:left word:right ~import(left + [right])
+package = "package" sp (word:w ".")*:left word:right ~package(left + [right])
 
 operator_chars = /[~`!#$\%^\&*\\+\-\/?:<=>\|]/
 unary_operator = < operator_chars > { text }
@@ -340,6 +342,7 @@ expr = if
      | ret
      | inc
      | import
+     | package
      | call
 
 grouped = "(" expr:e ")" ~group(e)

@@ -1,3 +1,5 @@
+package person
+
 %Import(name="printf")
 dec printf(str:char*, a:char*, b:int) : int
 
