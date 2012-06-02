@@ -1259,13 +1259,11 @@ module Talon
 
       @uniq_names = 0
       @import_paths = ["lib"]
-      @expanded_templates = Hash.new { |h,k| h[k] = [] }
-
     end
 
     attr_reader :typer
     attr_reader :malloc, :free, :void_ptr, :traits, :import_paths, :mod
-    attr_reader :string_type, :expanded_templates
+    attr_reader :string_type
 
     def name(prefix="tmp")
       "#{prefix}#{@uniq_names += 1}"
@@ -1286,11 +1284,6 @@ module Talon
         raise "Can't handle a #{name}"
       end
     end
-
-    def add_expanded_template(orig, expan)
-      @expanded_templates[orig] << expan
-    end
-
   end
 
   class LLVMToplevelVisitor < LLVMVisitor
