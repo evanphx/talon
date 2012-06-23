@@ -53,7 +53,7 @@ module Talon
       system "opt -std-compile-opts #{base}.bc | llc -o #{base}.s"
       system "clang -o #{base} #{base}.s"
 
-      unless @options[:temps]
+      unless @options[:temps] || ENV['TALON_DEBUG']
         File.unlink "#{base}.s"
         File.unlink "#{base}.bc"
       end

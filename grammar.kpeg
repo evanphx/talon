@@ -101,6 +101,7 @@
 %% trait_def = ast TraitDefinition(name, body)
 %% seq = ast Sequence(*elements)
 %% if_node = ast If(condition, then_body, else_body)
+%% while_node = ast While(condition, body)
 %% call = ast MethodCall(receiver, $method_name, *arguments)
 %% unary = ast UnaryOperator(receiver, operator)
 %% binary = ast BinaryOperator(receiver, argument, operator)
@@ -145,7 +146,7 @@ float = number:w "." number:f ~number("#{w}.#{f}".to_f)
 true = "true" ~bool_true()
 false = "false" ~bool_false()
 
-keyword = "end" | "else"
+keyword = "if" | "end" | "else" | "true" | "false"
 
 word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
 
@@ -173,6 +174,16 @@ string = "\"" string_body:s "\"" ~strlit(s.join)
 
 identifier = word:w ~ident(w)
 
+attribute_val  = "\"" < /[^"]+/ > "\"" { text }
+               | number:n { n.to_i }
+
+attribute_kv   = word:n br-sp "=" br-sp attribute_val:v { { n => v } }
+attribute_list = attribute_kv:i br-sp "," br-sp attribute_list:l { i.merge(l) }
+               | attribute_kv
+
+attribute = "%" word:n "(" attribute_list:l ")" br-sp
+          ~attr(n,l)
+
 template_arg = true | false | integer | type_id
 
 template_args = template_arg:a br-sp "," br-sp template_args:t { [a] + t }
@@ -189,33 +200,20 @@ type_id = type_mod:w "::" type_id:t ~scoped_type(w, t)
 template_instance = word "<" word ">"
 type_array = word "[]"
 
-many_expr = - comment:e many_expr:m { [e] + m }
-          | - expr:e expr_end many_expr:m { [e] + m }
-          | - expr:e { [e] }
-
-sequence = many_expr:e
-           { e.size > 1 ? seq(e) : e.first }
-
-expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
-            | expr:e { [e] }
-
-expr_list = br-sp expr_list_b:b br-sp { b }
-
 if = "if" sp expr:c expr_end sequence:t expr_end "end"
      ~if_node(c,t,nil)
-   | "if" sp expr:c expr_end expr:t expr_end "else" expr_end expr:f expr_end "end"
+   | "if" sp expr:c expr_end sequence:t expr_end
+     "else" expr_end sequence:f expr_end "end"
      ~if_node(c,t,f)
+
+while = "while" sp expr:c expr_end sequence:t expr_end "end"
+        ~while_node(c,t)
 
 typed_ident = word:i br-sp ":" br-sp type_id:t ~typed_ident(i,t)
             | identifier
 
 ident_list = typed_ident:i br-sp "," br-sp ident_list:l { [i] + l }
            | typed_ident:i { [i] }
-
-def_args = "(" br-sp ")" { nil }
-         | "(" br-sp ident_list:l br-sp ")" { l }
-
-ret_type = - ":" - type_id:t { t }
 
 id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
         | identifier:a { [a] }
@@ -225,42 +223,45 @@ templated_name = word:w "<" id_list:e ">" ~templated_name(w,e)
 
 def_start = "def" sp templated_name:w { w }
 
+def_args = "(" br-sp ")" { nil }
+         | "(" br-sp ident_list:l br-sp ")" { l }
+
+ret_type = - ":" - type_id:t { t }
+
 def = def_start:w def_args?:a ret_type?:t expr_end "end"
       ~method_def(w,a,nil,t)
     | def_start:w def_args?:a ret_type?:t expr_end sequence:s expr_end "end"
       ~method_def(w,a,s,t)
-
-attribute_val  = "\"" < /[^"]+/ > "\"" { text }
-               | number:n { n.to_i }
-
-attribute_kv   = word:n br-sp "=" br-sp attribute_val:v { { n => v } }
-attribute_list = attribute_kv:i br-sp "," br-sp attribute_list:l { i.merge(l) }
-               | attribute_kv
-
-attribute = "%" word:n "(" attribute_list:l ")" br-sp
-          ~attr(n,l)
 
 dec = attribute?:ab "dec" sp templated_name:w def_args?:a ret_type:t
      ~method_dec(w,a,t,ab)
 
 var = "var" sp word:i sp ":" sp type_id:t sp "=" sp call:e ~var(i,t,e)
     | "var" sp word:i sp "=" sp call:e ~var(i,nil,e)
-    | "var" sp "@" word:w sp ":" sp type_id:t ~ivar_decl(w,t)
     | "var" sp word:i sp ":" sp type_id:t ~var_decl(i,t)
     | word:i sp ":=" sp call:e ~var(i,nil,e)
 
+ivar_decl = "var" sp "@" word:w sp ":" sp type_id:t ~ivar_decl(w,t)
+
+level2 = dec | def | class | trait | inc | ivar_decl
+
+many_l2   = - comment:e level2:m { [e] + m }
+          | - level2:e expr_end many_l2:m { [e] + m }
+          | - level2:e { [e] }
+
+l2_seq = many_l2:e { e.size > 1 ? seq(e) : e.first }
 
 class_start = "class" sp templated_name:w { w }
 class_superclass = - ":" - templated_name:s { s }
 
 class = class_start:w class_superclass?:s expr_end "end"
         ~class_def(w,s,nil)
-      | class_start:w class_superclass?:s expr_end sequence:e expr_end "end"
+      | class_start:w class_superclass?:s expr_end l2_seq:e expr_end "end"
         ~class_def(w,s,e)
 
 trait = "trait" sp templated_name:name expr_end "end"
         ~trait_def(name,nil)
-      | "trait" sp templated_name:name expr_end sequence:e expr_end "end"
+      | "trait" sp templated_name:name expr_end l2_seq:e expr_end "end"
         ~trait_def(name,e)
 
 inc = "include" sp word:name ~inc(name)
@@ -291,6 +292,11 @@ call_np_list = method_np_arg:e - "," br-sp call_np_list:l { [e] + l }
 method_call_np = method_np_recv:r "." word:w sp call_np_list:l ~call(r,w,l)
 
 func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
+
+expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
+            | expr:e { [e] }
+
+expr_list = br-sp expr_list_b:b br-sp { b }
 
 method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
                | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
@@ -334,19 +340,26 @@ call = unary_operator:o expr:r ~unary(r,o)
      | method_call_np
      | method_call
 
-expr = if
-     | dec
-     | def
-     | class
-     | trait
-     | var
-     | assign
-     | ret
-     | inc
-     | import
-     | package
-     | call
+many_stmts = - comment:e many_stmts:m { [e] + m }
+           | - stmt:e expr_end many_stmts:m { [e] + m }
+           | - stmt:e { [e] }
+
+sequence = many_stmts:e
+           { e.size > 1 ? seq(e) : e.first }
+
+stmt = if | while | var | assign | ret | expr
+
+expr = call
 
 grouped = "(" expr:e ")" ~group(e)
 
-root = expr_end* sequence:e br-sp eof { @ast = e }
+toplevel = dec | def | class | trait | import | package | inc
+
+many_top  = - comment:e many_top:m { [e] + m }
+          | - toplevel:e expr_end many_top:m { [e] + m }
+          | - toplevel:e { [e] }
+
+top_seq = many_top:e
+           { e.size > 1 ? seq(e) : e.first }
+
+root = expr_end* top_seq:e br-sp eof { @ast = e }

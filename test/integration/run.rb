@@ -2,7 +2,11 @@
 Dir.chdir File.dirname(__FILE__)
 
 if dir = ARGV.shift
-  files = Dir["#{dir}/*.tln"]
+  if File.directory? dir
+    files = Dir["#{dir}/*.tln"]
+  else
+    files = [dir]
+  end
 else
   files = Dir["*.tln"] + Dir["typecheck/*.tln"]
 end

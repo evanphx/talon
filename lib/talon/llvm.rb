@@ -59,11 +59,11 @@ module Talon
       return @type if @type
 
       case @name
-      when "Char"
+      when "talon.Char"
         LLVM::Int8
-      when "Integer"
+      when "talon.Integer"
         LLVM::Int32
-      when "Boolean"
+      when "talon.Boolean"
         LLVM::Int1
       else
         raise "Unknown type - #{@name}"
@@ -87,6 +87,10 @@ module Talon
 
     def llvm_type
       LLVM::Type.pointer @inner.llvm_type
+    end
+
+    def name
+      "#{@inner.name}*"
     end
   end
 
@@ -366,10 +370,10 @@ module Talon
     def self.global_scope(ctx)
       s = Scope.new
 
-      bool = BooleanType.new("Boolean")
-      void = Type.new("Void", LLVM::Type.void)
+      bool = BooleanType.new("talon.Boolean")
+      void = Type.new("talon.Void", LLVM::Type.void)
       int = IntegerType.new("talon.Integer", LLVM::Int32, bool)
-      char = Type.new("Char")
+      char = Type.new("talon.Char")
 
       string = StringType.new "talon.String", ctx.string_type, char.pointer
 
@@ -656,6 +660,13 @@ module Talon
       @void
     end
 
+    def gen_while_node(i)
+      add i.condition
+      add i.body
+
+      @void
+    end
+
     def gen_trait_def(trait)
       add trait.body
 
@@ -738,6 +749,14 @@ module Talon
       case as.variable
       when AST::InstanceVariable
         @scope.add_ivar as.variable.name, t
+      when AST::Identifier
+        cur = @scope[as.variable.name]
+        if cur != t
+          raise TypeMismatchError,
+                "Unable to assign a '#{t.name}' to a declared '#{cur.name}'"
+        end
+
+        t
       else
         raise "Not supported assign - #{as.inspect}"
       end
@@ -1065,6 +1084,36 @@ module Talon
       nil
     end
 
+    def gen_while_node(i)
+      top = new_block "top"
+
+      b.br top
+
+      set_block top
+
+      c = g i.condition
+      c = b.bit_cast c, LLVM::Int1, "to_cond"
+
+      comp = b.icmp :ne, c, LLVM::Int1.from_i(0)
+
+      body = new_block "body"
+      cont = new_block "continue"
+
+      b.cond comp, body, cont
+
+      set_block body
+
+      g i.body
+
+      if reachable?
+        b.br top
+      end
+
+      set_block cont
+
+      nil
+    end
+
     def gen_binary(i)
       t = @top.type_of i.receiver
       if t and op = t.find_operation(i.operator)
@@ -1163,6 +1212,9 @@ module Talon
         end
 
         b.store val, pos
+      when AST::Identifier
+        loc = @scope[as.variable.name]
+        b.store val, loc
       else
         raise "Not supported assign - #{as.inspect}"
       end

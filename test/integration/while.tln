@@ -1,0 +1,14 @@
+%Import(name="printf")
+dec printf(str:char*) : int
+
+def main(argc:int, argv:char**) : int
+  i := 0
+
+  while i < 5
+    printf "a".c_str
+    i = i + 1
+  end
+
+  printf "\n".c_str -- check: aaaaa
+  return 0 
+end
