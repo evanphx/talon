@@ -1,0 +1,11 @@
+-- error: unknown operator '*-*' on a 'talon.Integer'
+
+%Import(name="printf")
+dec printf(str:char*, a:int, b:int) : int
+
+def main(argc:int, argv:char**) : int
+  var a = 20
+  var b = 30
+  var c = a *-* b
+  printf "%d => %d\n".c_str, 20, a -- check: 20 => 20
+end

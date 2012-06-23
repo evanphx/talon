@@ -1,0 +1,7 @@
+%Import(name="printf")
+dec printf(str:char*, a:int, b:int) : int
+
+def main(argc:int, argv:char**) : int
+  a := 20
+  printf "%d => %d\n".c_str, 20, a -- check: 20 => 20
+end

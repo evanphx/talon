@@ -1,0 +1,6 @@
+-- error: nothing named 'a' found in scope
+
+def main(argc:int, argv:char**) : int
+  a * 20
+  return 0
+end

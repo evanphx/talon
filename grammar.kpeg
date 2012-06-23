@@ -247,6 +247,8 @@ var = "var" sp word:i sp ":" sp type_id:t sp "=" sp call:e ~var(i,t,e)
     | "var" sp word:i sp "=" sp call:e ~var(i,nil,e)
     | "var" sp "@" word:w sp ":" sp type_id:t ~ivar_decl(w,t)
     | "var" sp word:i sp ":" sp type_id:t ~var_decl(i,t)
+    | word:i sp ":=" sp call:e ~var(i,nil,e)
+
 
 class_start = "class" sp templated_name:w { w }
 class_superclass = - ":" - templated_name:s { s }

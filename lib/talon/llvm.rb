@@ -18,6 +18,12 @@ module Talon
   class MissingArgumentsError < CompileError
   end
 
+  class UnitializedError < CompileError
+  end
+
+  class UnknownOperationError < CompileError
+  end
+
   class GenVisitor
     Dispatch = {}
 
@@ -240,7 +246,8 @@ module Talon
       when "<", ">"
         MathCompareOperation.new(name, self, @bool_type)
       else
-        raise "unknown math op - #{name}"
+        raise UnknownOperationError,
+              "unknown operator '#{name}' on a '#{self.name}'"
       end
     end
   end
@@ -609,7 +616,12 @@ module Talon
     end
 
     def gen_ident(i)
-      @scope[i.name]
+      v = @scope[i.name]
+      unless v
+        raise UnitializedError, "nothing named '#{i.name}' found in scope"
+      end
+
+      v
     end
 
     def gen_number(n)
