@@ -1,7 +1,7 @@
 import person
 
 %Import(name="puts")
-dec puts(str:char*) : int
+dec puts(str:char*, n:int) : int
 
 class Person
   var @whatever : int

@@ -347,4 +347,4 @@ expr = if
 
 grouped = "(" expr:e ")" ~group(e)
 
-root = sequence:e br-sp eof { @ast = e }
+root = expr_end* sequence:e br-sp eof { @ast = e }

@@ -11,3 +11,7 @@ end
 task :integration do
   ruby "test/integration/run.rb"
 end
+
+task :typecheck do
+  ruby "test/integration/run.rb typecheck"
+end

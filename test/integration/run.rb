@@ -1,12 +1,36 @@
 
 Dir.chdir File.dirname(__FILE__)
 
-files = Dir["*.tln"]
+if dir = ARGV.shift
+  files = Dir["#{dir}/*.tln"]
+else
+  files = Dir["*.tln"] + Dir["typecheck/*.tln"]
+end
 
 fails = false
 
 files.each do |f|
-  checks = File.readlines(f).grep(/-- check: (.*)/) { $1 }
+  lines = File.readlines(f)
+  checks = lines.grep(/-- check: (.*)/) { $1 }
+
+  if lines.first =~ /-- error: (.*)/
+    e = $1
+    out = `ruby -I../../lib ../../bin/talon #{f}`
+    if $?.exitstatus == 0
+      puts "FAIL (compile, should fail) #{f}"
+      fails = true
+    elsif !out.split("\n").grep(Regexp.new(Regexp.quote(e))).empty?
+      puts "PASS #{f}"
+    else
+      puts "FAIL #{f}"
+      puts " Expected: '#{e}' in <<-OUTPUT"
+      puts out
+      puts " OUTPUT"
+      fails = true
+    end
+
+    next
+  end
 
   system "ruby -I../../lib ../../bin/talon #{f}"
   if $?.exitstatus != 0

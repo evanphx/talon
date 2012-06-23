@@ -1,0 +1,8 @@
+-- error: unable to pass a 'talon.Integer' as a 'talon.String' for argument 1 of 'io.puts'
+
+import io
+
+def main(argc: int, argv: char**) : int
+  io.puts 1
+  return 0
+end

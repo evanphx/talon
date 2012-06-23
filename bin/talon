@@ -39,4 +39,10 @@ end
 
 comp = Talon::Compiler.new file, opts
 
-comp.compile
+begin
+  comp.compile
+rescue Talon::CompileError => e
+  puts "Error compiling #{file}:"
+  puts "  #{e.message}"
+  exit 1
+end

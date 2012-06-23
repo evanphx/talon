@@ -1,0 +1,17 @@
+-- error: unable to assign a 'talon.String' to '@age' (a 'talon.Integer')
+
+class Person
+  var @age : int
+  var @name : string
+
+  def initialize(age:int, name:string) : void
+    @age = name
+    @name = name
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  var evan = Person(32, "Evan Phoenix")
+
+  0
+end

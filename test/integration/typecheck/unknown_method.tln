@@ -1,0 +1,7 @@
+-- error: unable to find a function 'foo'
+
+def main(argc: int, argv: char**) : int
+  var name = "hello"
+  var x = foo(name)
+  return 0
+end

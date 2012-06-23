@@ -9,6 +9,15 @@ module Kernel
 end
 
 module Talon
+  class CompileError < RuntimeError
+  end
+
+  class TypeMismatchError < CompileError
+  end
+
+  class MissingArgumentsError < CompileError
+  end
+
   class GenVisitor
     Dispatch = {}
 
@@ -120,7 +129,7 @@ module Talon
         return sig
       end
 
-      raise "unknown signature for '#{name}'"
+      nil
     end
   end
 
@@ -143,7 +152,7 @@ module Talon
       if name == "c_str"
         return Signature.new("c_str", [], @data_type)
       else
-        raise "unknown operatior - #{name}"
+        nil
       end
     end
   end
@@ -156,7 +165,8 @@ module Talon
 
     def calc_type(other)
       unless @type == other
-        raise "no"
+        raise TypeMismatchError,
+              "no operation '#{@name}' between '#{@type.name}' and '#{other.name}'"
       end
 
       @type
@@ -351,7 +361,7 @@ module Talon
 
       bool = BooleanType.new("Boolean")
       void = Type.new("Void", LLVM::Type.void)
-      int = IntegerType.new("Integer", LLVM::Int32, bool)
+      int = IntegerType.new("talon.Integer", LLVM::Int32, bool)
       char = Type.new("Char")
 
       string = StringType.new "talon.String", ctx.string_type, char.pointer
@@ -486,7 +496,12 @@ module Talon
 
       if rec = c.receiver
         rt = add rec
-        return rt.find_signature(c.method_name).return_type
+        if sig = rt.find_signature(c.method_name)
+          return sig.return_type
+        else
+          raise TypeMismatchError,
+                "unable to find method '#{c.method_name}' on a '#{rt.name}'"
+        end
       end
 
       if c.method_name == "reclaim"
@@ -501,7 +516,7 @@ module Talon
         return t
       end
 
-      raise "no - #{c.method_name}"
+      raise TypeMismatchError, "unable to find a function '#{c.method_name}'"
     end
 
     class ExpandedTemplate
@@ -848,13 +863,42 @@ module Talon
       raise "no"
     end
 
-    def instantiate_type(call, t, alloca=false)
-      if args = call.arguments
-        args = args.map { |a| g(a) }
-      else
-        args = []
+    def convert_args(target, call, method_name=call.method_name)
+      args = call.arguments || []
+      arg_types = args.map { |a| @top.type_of(a) }
+
+      arg_num = 1
+
+      need = target.arg_types.size
+      got  = args.size
+
+      if need != got
+        raise MissingArgumentsError, "missing arguments to '#{method_name}' (needed #{need}, got #{got})"
       end
 
+      target.arg_types.zip(args).map do |req,ast|
+        is = @top.type_of(ast)
+        val = g(ast)
+
+        unless req == is
+          unless is.respond_to? :convert_to?
+            raise TypeMismatchError, "unable to pass a '#{is.name}' as a '#{req.name}' for argument #{arg_num} of '#{method_name}'"
+          end
+
+          val = is.convert_to?(self, val, req)
+
+          unless val
+            raise "Type mismatch - #{is} can't be a #{req}"
+          end
+        end
+
+        arg_num += 1
+
+        val
+      end
+    end
+
+    def instantiate_type(call, t, alloca=false)
       if alloca
         ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
       else
@@ -862,7 +906,10 @@ module Talon
       end
 
       obj = b.bit_cast ptr, t.value_type
+
       if m = t.find_operation("initialize")
+        args = convert_args m, call, "#{t.name}#initialize"
+
         m.invoke self, obj, *args
       end
       obj
@@ -876,7 +923,7 @@ module Talon
             obj = s.functions[call.method_name]
 
             if obj
-              args = call.arguments.map { |a| g(a) }
+              args = convert_args obj, call, "#{r.name}.#{call.method_name}"
               return b.call(obj.func, *args)
             end
 
@@ -910,22 +957,7 @@ module Talon
         end
 
         if target = @top.toplevel_function(call.method_name)
-          arg_types = call.arguments.map { |a| @top.type_of(a) }
-
-          args = target.arg_types.zip(call.arguments).map do |req,ast|
-            is = @top.type_of(ast)
-            val = g(ast)
-
-            unless req == is
-              val = is.convert_to?(self, val, req)
-
-              unless val
-                raise "Type mismatch - #{is} can't be a #{req}"
-              end
-            end
-
-            val
-          end
+          args = convert_args target, call
 
           b.call target.func, *args
         else 
@@ -1022,20 +1054,12 @@ module Talon
     end
 
     def gen_binary(i)
-      case i.operator
-      when "<"
-        l = g i.receiver
-        r = g i.argument
-
-        b.icmp :slt, l, r
-      else
-        t = @top.type_of i.receiver
-        if t and op = t.find_operation(i.operator)
-          return op.run(self, i)
-        end
-
-        raise "Unsupported operator - #{i.operator}"
+      t = @top.type_of i.receiver
+      if t and op = t.find_operation(i.operator)
+        return op.run(self, i)
       end
+
+      raise "Unsupported operator - #{i.operator}"
     end
 
     def gen_ident(i)
@@ -1114,10 +1138,18 @@ module Talon
     end
 
     def gen_assign(as)
+      vt = @top.type_of(as.value)
+
       val = g as.value
       case as.variable
       when AST::InstanceVariable
         pos = self_gep(as.variable.name)
+
+        it = @self.ivar_type(as.variable.name)
+        if it != vt
+          raise TypeMismatchError, "unable to assign a '#{vt.name}' to '@#{as.variable.name}' (a '#{it.name}')"
+        end
+
         b.store val, pos
       else
         raise "Not supported assign - #{as.inspect}"
@@ -1153,17 +1185,17 @@ module Talon
   end
 
   class Method
-    def initialize(func)
+    def initialize(func, args, name)
       @func = func
+      @arg_types = args
+      @name = name
     end
+
+    attr_reader :arg_types
 
     def run(visit, node)
       recv = visit.g(node.receiver)
-      if args = node.arguments
-        args = node.arguments.map { |a| visit.g(a) }
-      else
-        args = []
-      end
+      args = visit.convert_args self, node, @name
 
       visit.b.call @func, recv, *args
     end
@@ -1209,12 +1241,12 @@ module Talon
     
     def gen_method_def(meth)
       if meth.arguments
-        args = meth.arguments.map { |a| @top.value_type(a) }
+        args = meth.arguments.map { |a| @top.type_of(a) }
       else
         args = []
       end
 
-      args.unshift @type.pointer
+      impl_args = [@type.pointer] + args.map { |a| a.value_type }
 
       if rt = meth.return_type
         ret = @top.value_type rt
@@ -1222,9 +1254,11 @@ module Talon
         ret = LLVM::Type.void
       end
 
-      func = @top.mod.functions.add method_name(meth.name), args, ret
+      func = @top.mod.functions.add method_name(meth.name), impl_args, ret
 
-      @talon_type.methods[meth.name] = Method.new func
+      name = "#{@type.name}##{meth.name}"
+
+      @talon_type.methods[meth.name] = Method.new func, args, name
 
       inner = LLVMFunctionVisitor.new @top, func, meth, self
       inner.gen_and_return meth.body

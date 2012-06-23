@@ -1,0 +1,17 @@
+-- error: missing arguments to 'Person#initialize' (needed 2, got 1)
+
+class Person
+  var @age : int
+  var @name : string
+
+  def initialize(age:int, name:string) : void
+    @age = age
+    @name = name
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  var evan = Person(32)
+
+  0
+end

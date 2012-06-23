@@ -1,0 +1,11 @@
+-- error: unable to pass a 'talon.String' as a 'talon.Integer' for argument 1 of 'foo'
+
+def foo(n: int) : int
+  return n + 1
+end
+
+def main(argc: int, argv: char**) : int
+  var name = "hello"
+  var x = foo(name)
+  return 0
+end

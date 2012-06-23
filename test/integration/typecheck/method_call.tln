@@ -1,0 +1,20 @@
+-- error: unable to find method 'show' on a 'Person'
+
+class Person
+  var @age : int
+  var @name : string
+
+  def initialize(age:int, name:string) : void
+    @age = age
+    @name = name
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  var evan = Person(32, "Evan Phoenix")
+  evan.show
+
+  reclaim evan
+
+  0
+end
