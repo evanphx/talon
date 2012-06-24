@@ -102,6 +102,8 @@
 %% seq = ast Sequence(*elements)
 %% if_node = ast If(condition, then_body, else_body)
 %% while_node = ast While(condition, body)
+%% case_node = ast Case(condition, whens)
+%% when_node = ast When(var, body)
 %% call = ast MethodCall(receiver, $method_name, *arguments)
 %% unary = ast UnaryOperator(receiver, operator)
 %% binary = ast BinaryOperator(receiver, argument, operator)
@@ -209,11 +211,22 @@ if = "if" sp expr:c expr_end sequence:t expr_end "end"
 while = "while" sp expr:c expr_end sequence:t expr_end "end"
         ~while_node(c,t)
 
-typed_ident = word:i br-sp ":" br-sp type_id:t ~typed_ident(i,t)
-            | identifier
+case = "case" sp expr:c expr_end whens:t expr_end "end"
+       ~case_node(c,t)
 
-ident_list = typed_ident:i br-sp "," br-sp ident_list:l { [i] + l }
-           | typed_ident:i { [i] }
+typed_ident = word:i br-sp ":" br-sp type_id:t ~typed_ident(i,t)
+
+when = "when" br-sp typed_ident:i expr_end sequence:b
+       ~when_node(i,b)
+
+whens = - comment:e whens:m { [e] + m }
+      | - when:e expr_end whens:m { [e] + m }
+      | - when:e { [e] }
+
+maybe_ti = typed_ident | identifier
+
+ident_list = maybe_ti:i br-sp "," br-sp ident_list:l { [i] + l }
+           | maybe_ti:i { [i] }
 
 id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
         | identifier:a { [a] }
@@ -347,7 +360,7 @@ many_stmts = - comment:e many_stmts:m { [e] + m }
 sequence = many_stmts:e
            { e.size > 1 ? seq(e) : e.first }
 
-stmt = if | while | var | assign | ret | expr
+stmt = if | while | case | var | assign | ret | expr
 
 expr = call
 

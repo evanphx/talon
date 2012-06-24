@@ -3,6 +3,15 @@ dec printf(str:char*, name:char*) : int
 
 def show(e:dynamic) : void
   printf "%s\n".c_str, e.type.name.c_str -- check: talon.Integer
+
+  case e
+  when i: int
+    if i < 30
+      printf "%s\n".c_str, "casted to 20".c_str -- check: casted to 20
+    else
+      8 -- FIXME 
+    end
+  end
 end
 
 def main(argc:int, argv:char**) :int

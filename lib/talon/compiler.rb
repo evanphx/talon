@@ -50,7 +50,7 @@ module Talon
 
       lv.mod.write_bitcode "#{base}.bc"
 
-      system "opt -std-compile-opts #{base}.bc | llc -o #{base}.s"
+      system "opt -O2 #{base}.bc | llc -o #{base}.s"
       system "clang -o #{base} #{base}.s"
 
       unless @options[:temps] || ENV['TALON_DEBUG']

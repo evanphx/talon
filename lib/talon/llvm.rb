@@ -286,10 +286,14 @@ module Talon
     def wrap(visit, val, o)
       rt = visit.runtime_type(o)
 
-      t = visit.b.alloca llvm_type, "alloca.dynamic"
-      visit.b.store rt, visit.b.gep(t, [LLVM::Int(0), LLVM::Int(0)])
+      st = visit.specific_dynamic(o)
 
-      t
+      t = visit.b.alloca st, "alloca.dynamic"
+      visit.b.store rt,  visit.b.gep(t, [LLVM::Int(0), LLVM::Int(0),
+                                         LLVM::Int(0)])
+      visit.b.store val, visit.b.gep(t, [LLVM::Int(0), LLVM::Int(1)])
+
+      visit.b.bit_cast t, value_type
     end
   end
 
@@ -726,6 +730,22 @@ module Talon
       @void
     end
 
+    def gen_case_node(i)
+      add i.condition
+      i.whens.each do |w|
+        add w
+      end
+
+      @void
+    end
+
+    def gen_when_node(i)
+      @scope[i.var.name] = add(i.var)
+
+      add i.body
+      @void
+    end
+
     def gen_trait_def(trait)
       add trait.body
 
@@ -911,6 +931,10 @@ module Talon
 
     def runtime_type(t)
       @top.runtime_type(t)
+    end
+
+    def specific_dynamic(t)
+      @top.context.specific_dynamic t
     end
 
     def b
@@ -1179,6 +1203,58 @@ module Talon
       nil
     end
 
+    def type_name(t)
+      case t.kind
+      when :pointer
+        "#{type_name t.element_type}*"
+      when :array
+        "#{type_name t.element_type}[]"
+      when :struct
+        t.name
+      else
+        t.to_s
+      end
+    end
+
+    def gen_case_node(i)
+      et = @top.type_of(i.condition)
+      ev = g i.condition
+
+      rt_is = b.load b.gep(ev, [LLVM::Int(0), LLVM::Int(0)])
+
+      i.whens.each do |w|
+        need = @top.type_of(w.var)
+
+        rt_need = runtime_type(need)
+
+        c = b.icmp :eq, rt_need, rt_is
+
+        cont = new_block "continue"
+        body = new_block "body"
+
+        b.cond c, body, cont
+
+        set_block body
+
+        cast = b.bit_cast ev, LLVM::Type.pointer(specific_dynamic(need))
+
+        r = add_alloca need.value_type
+
+        @locals[w.var.name] = need
+        @scope[w.var.name] = r
+
+        s = b.load b.gep(cast, [LLVM::Int(0), LLVM::Int(1)])
+        b.store s, r
+
+        g w.body
+
+        b.br cont
+        set_block cont
+      end
+
+      nil
+    end
+
     def gen_binary(i)
       t = @top.type_of i.receiver
       if t and op = t.find_operation(i.operator)
@@ -1189,7 +1265,11 @@ module Talon
     end
 
     def gen_ident(i)
-      b.load @scope[i.name], "#{i.name}.loaded"
+      if l = @scope[i.name]
+        b.load l, "#{i.name}.loaded"
+      else
+        raise "uninitialized local '#{i.name}' used"
+      end
     end
 
     def gen_number(n)
@@ -1427,6 +1507,9 @@ module Talon
 
       @uniq_names = 0
       @import_paths = ["lib"]
+
+      @runtime_types = {}
+      @specific_dynamics = {}
     end
 
     attr_reader :typer
@@ -1455,15 +1538,36 @@ module Talon
       str
     end
 
-    def runtime_type(t)
-      s = global_string(t.name)
+    def runtime_type(type)
+      cur = @runtime_types[type]
 
-      t = @mod.globals.add @type_type, name(t.name)
-      t.linkage = :internal
-      t.initializer = LLVM::ConstantStruct.const_named @type_type, [s]
-      t.alignment = 8
+      unless cur
+        s = global_string(type.name)
 
-      t
+        t = @mod.globals.add @type_type, name(type.name)
+        t.linkage = :internal
+        t.initializer = LLVM::ConstantStruct.const_named @type_type, [s]
+        t.alignment = 8
+
+        @runtime_types[type] = t
+
+        cur = t
+      end
+
+      cur
+    end
+
+    def specific_dynamic(t)
+      cur = @specific_dynamics[t]
+
+      unless cur
+        elems = [@dynamic_type, t.value_type]
+        cur = LLVM::Type.struct elems, false, "talon.Dynamic[#{t.name}]"
+
+        @specific_dynamics[t] = cur
+      end
+
+      cur
     end
 
     def expanded_template_name(name, *concrete)
