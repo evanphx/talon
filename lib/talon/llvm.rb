@@ -237,6 +237,62 @@ module Talon
     end
   end
 
+  class TypeType < ReferenceType
+    def initialize(name, llvm_type, name_type)
+      super name, llvm_type
+      @name_type = name_type
+    end
+
+    def find_operation(name)
+      case name
+      when "name"
+        return GetElement.new(@name_type, 0, "name")
+      else
+        raise UnknownOperationError, "unknown operation '#{name}' on a type"
+      end
+    end
+
+    def find_signature(name)
+      if name == "name"
+        return Signature.new("name", [], @name_type)
+      else
+        nil
+      end
+    end
+  end
+
+  class DynamicType < ReferenceType
+    def initialize(name, llvm_type, tt)
+      super name, llvm_type
+      @tt = tt
+    end
+
+    def find_operation(name)
+      case name
+      when "type"
+        return GetElement.new(@tt, 0, "type")
+      else
+        raise UnknownOperationError, "unknown dynamic operation '#{name}'"
+      end
+    end
+
+    def find_signature(name)
+      case name
+      when "type"
+        return Signature.new("type", [], @tt)
+      end
+    end
+
+    def wrap(visit, val, o)
+      rt = visit.runtime_type(o)
+
+      t = visit.b.alloca llvm_type, "alloca.dynamic"
+      visit.b.store rt, visit.b.gep(t, [LLVM::Int(0), LLVM::Int(0)])
+
+      t
+    end
+  end
+
   class IntegerType < Type
     def initialize(name, llvm_type, bool_type)
       super name, llvm_type
@@ -374,8 +430,10 @@ module Talon
       void = Type.new("talon.Void", LLVM::Type.void)
       int = IntegerType.new("talon.Integer", LLVM::Int32, bool)
       char = Type.new("talon.Char")
-
       string = StringType.new "talon.String", ctx.string_type, char.pointer
+
+      tt  = TypeType.new("talon.Type", ctx.type_type, string)
+      dyn = DynamicType.new("talon.Dynamic", ctx.dynamic_type, tt)
 
       s['Char'] = char
       s['Integer'] = int
@@ -383,6 +441,7 @@ module Talon
       s['Void'] = void
       s['Boolean'] = bool
       s['String'] = string
+      s['dynamic'] = dyn
 
       s
     end
@@ -850,6 +909,10 @@ module Talon
       end
     end
 
+    def runtime_type(t)
+      @top.runtime_type(t)
+    end
+
     def b
       @builder
     end
@@ -912,11 +975,13 @@ module Talon
         val = g(ast)
 
         unless req == is
-          unless is.respond_to? :convert_to?
+          if req.kind_of? DynamicType
+            val = req.wrap(self, val, is)
+          elsif !is.respond_to? :convert_to?
             raise TypeMismatchError, "unable to pass a '#{is.name}' as a '#{req.name}' for argument #{arg_num} of '#{method_name}'"
+          else
+            val = is.convert_to?(self, val, req)
           end
-
-          val = is.convert_to?(self, val, req)
 
           unless val
             raise "Type mismatch - #{is} can't be a #{req}"
@@ -1241,7 +1306,6 @@ module Talon
       raise "no arguments supported" if node.arguments
 
       val = visit.g(node.receiver)
-
       indices = [LLVM::Int(0), LLVM::Int(@pos)]
 
       visit.b.load visit.b.gep(val, indices, @name)
@@ -1351,6 +1415,12 @@ module Talon
       elems = [LLVM::Int32, data_pointer]
       @string_type = LLVM::Type.struct elems, false, "talon.String"
 
+      elems = [LLVM::Type.pointer(@string_type)]
+      @type_type = LLVM::Type.struct elems, false, "talon.Type"
+
+      elems = [LLVM::Type.pointer(@type_type)]
+      @dynamic_type = LLVM::Type.struct elems, false, "talon.Dynamic"
+
       @void_ptr = LLVM::Pointer(LLVM::Int8)
       @malloc = @mod.functions.add "malloc", [LLVM::Int64], @void_ptr
       @free = @mod.functions.add "free", [@void_ptr], LLVM::Type.void
@@ -1361,10 +1431,39 @@ module Talon
 
     attr_reader :typer
     attr_reader :malloc, :free, :void_ptr, :traits, :import_paths, :mod
-    attr_reader :string_type
+    attr_reader :string_type, :type_type, :dynamic_type
 
     def name(prefix="tmp")
       "#{prefix}#{@uniq_names += 1}"
+    end
+
+    def global_string(s)
+      const = LLVM::ConstantArray.string s, true
+      c_str = @mod.globals.add const.type, name(".cstr")
+      c_str.initializer = const
+      c_str.linkage = :private
+      c_str.global_constant = 1
+
+      str = @mod.globals.add @string_type, name("string")
+      str.linkage = :internal
+      siz = LLVM::ConstantInt32.from_i s.size
+      dat = c_str.gep LLVM::ConstantInt32.from_i(0), LLVM::ConstantInt32.from_i(0)
+      init = LLVM::ConstantStruct.const_named @string_type, [siz, dat]
+      str.initializer = init
+      str.alignment = 8
+
+      str
+    end
+
+    def runtime_type(t)
+      s = global_string(t.name)
+
+      t = @mod.globals.add @type_type, name(t.name)
+      t.linkage = :internal
+      t.initializer = LLVM::ConstantStruct.const_named @type_type, [s]
+      t.alignment = 8
+
+      t
     end
 
     def expanded_template_name(name, *concrete)
@@ -1409,6 +1508,10 @@ module Talon
       if n = @functions[name]
         return n
       end
+    end
+
+    def runtime_type(t)
+      @context.runtime_type(t)
     end
 
     def name(prefix="tmp")

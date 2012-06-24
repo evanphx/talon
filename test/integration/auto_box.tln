@@ -1,0 +1,14 @@
+%Import(name="printf")
+dec printf(str:char*, name:char*) : int
+
+def show(e:dynamic) : void
+  printf "%s\n".c_str, e.type.name.c_str -- check: talon.Integer
+end
+
+def main(argc:int, argv:char**) :int
+  var i = 20
+
+  show i
+
+  return 0
+end
