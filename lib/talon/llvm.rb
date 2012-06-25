@@ -216,7 +216,8 @@ module Talon
 
     def calc_type(other)
       unless @type == other
-        raise "no"
+        raise TypeMismatchError,
+              "no operation '#{@name}' between '#{@type.name}' and '#{other.name}'"
       end
 
       @bool_type
@@ -231,6 +232,8 @@ module Talon
         visit.b.icmp :slt, l, r
       when ">"
         visit.b.icmp :sgt, l, r
+      when "=="
+        visit.b.icmp :eq, l, r
       else
         raise "Can't handle #{@name}"
       end
@@ -307,7 +310,7 @@ module Talon
       case name
       when "+", "-", "*", "/", "%", "<<", ">>"
         MathOperation.new(name, self)
-      when "<", ">"
+      when "<", ">", "=="
         MathCompareOperation.new(name, self, @bool_type)
       else
         raise UnknownOperationError,

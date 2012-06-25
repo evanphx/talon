@@ -6,7 +6,7 @@ def show(e:dynamic) : void
 
   case e
   when i: int
-    if i < 30
+    if i == 20
       printf "%s\n".c_str, "casted to 20".c_str -- check: casted to 20
     else
       8 -- FIXME 

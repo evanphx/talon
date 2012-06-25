@@ -1,0 +1,7 @@
+-- error: no operation '==' between 'talon.Integer' and 'talon.String'
+
+def main(argc: int, argv: char**) : int
+  var name = "hello"
+  var x = 1 == name
+  return 0
+end
