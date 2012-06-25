@@ -721,7 +721,10 @@ module Talon
     def gen_if_node(i)
       add i.condition
       add i.then_body
-      add i.else_body
+
+      if i.else_body
+        add i.else_body
+      end
 
       @void
     end
@@ -1137,7 +1140,33 @@ module Talon
       str
     end
 
+    def simple_if(i)
+      c = g i.condition
+      c = b.bit_cast c, LLVM::Int1, "to_cond"
+
+      comp = b.icmp :ne, c, LLVM::Int1.from_i(0)
+
+      then_block = new_block "then"
+      cont = new_block "continue"
+
+      b.cond comp, then_block, cont
+
+      set_block then_block
+
+      g i.then_body
+
+      if reachable?
+        b.br cont
+      end
+
+      set_block cont
+
+      nil
+    end
+
     def gen_if_node(i)
+      return simple_if(i) unless i.else_body
+
       c = g i.condition
       c = b.bit_cast c, LLVM::Int1, "to_cond"
 

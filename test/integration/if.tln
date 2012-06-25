@@ -1,0 +1,12 @@
+%Import(name="printf")
+dec printf(str:char*) : int
+
+def main(argc:int, argv:char**) :int
+  var i = 20
+
+  if i == 20
+    printf "works\n".c_str -- check: works
+  end
+
+  return 0
+end
