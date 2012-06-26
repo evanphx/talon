@@ -519,6 +519,10 @@ module Talon
       @void
     end
 
+    def gen_varargs(v)
+      @void
+    end
+
     def gen_typed_ident(ti)
       add ti.type
     end
@@ -996,8 +1000,14 @@ module Talon
       need = target.arg_types.size
       got  = args.size
 
-      if need != got
-        raise MissingArgumentsError, "missing arguments to '#{method_name}' (needed #{need}, got #{got})"
+      if target.respond_to?(:varargs) and target.varargs
+        if need > got
+          raise MissingArgumentsError, "missing arguments to '#{method_name}' (needed #{need}, got #{got})"
+        end
+      else
+        if need != got
+          raise MissingArgumentsError, "missing arguments to '#{method_name}' (needed #{need}, got #{got})"
+        end
       end
 
       target.arg_types.zip(args).map do |req,ast|
@@ -1695,29 +1705,45 @@ module Talon
     end
 
     class Function
-      def initialize(func, arg_types, ret_type)
+      def initialize(func, arg_types, ret_type, opts=nil)
         @func = func
         @arg_types = arg_types
         @ret_type = ret_type
+
+        if opts and opts[:varargs]
+          @varargs = true
+        else
+          @varargs = false
+        end
       end
 
-      attr_reader :func, :arg_types, :ret_type
+      attr_reader :func, :arg_types, :ret_type, :varargs
     end
 
     def gen_method_dec(dec)
       if attr = dec.attribute
         if attr.name == "Import"
           name = attr.values["name"]
+          
+          opts = {}
 
-          arg_types = dec.arguments.map { |a| type_of(a) }
+          if dec.arguments.last.kind_of? AST::VariableArguments
+            args = dec.arguments.dup
+            opts[:varargs] = true
+            args.pop
+          else
+            args = dec.arguments
+          end
+
+          arg_types = args.map { |a| type_of(a) }
 
           args = arg_types.map { |a| a.value_type }
 
           ret_type = type_of dec.return_type
           ret = ret_type.value_type
 
-          func = @mod.functions.add name, args, ret
-          @functions[dec.name] = Function.new(func, arg_types, ret_type)
+          func = @mod.functions.add name, args, ret, opts
+          @functions[dec.name] = Function.new(func, arg_types, ret_type, opts)
         end
       end
     end

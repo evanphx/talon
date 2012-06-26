@@ -124,6 +124,7 @@
 %% templated_instance = ast TemplatedInstance(name, type, *arguments)
 %% import = ast Import(*segements)
 %% package = ast Package(*segments)
+%% varargs = ast VariableArguments()
 
 eof = !.
 
@@ -225,8 +226,8 @@ whens = - comment:e whens:m { [e] + m }
 
 maybe_ti = typed_ident | identifier
 
-ident_list = maybe_ti:i br-sp "," br-sp ident_list:l { [i] + l }
-           | maybe_ti:i { [i] }
+args_list = maybe_ti:i br-sp "," br-sp args_list:l { [i] + l }
+          | maybe_ti:i { [i] }
 
 id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
         | identifier:a { [a] }
@@ -237,7 +238,10 @@ templated_name = word:w "<" id_list:e ">" ~templated_name(w,e)
 def_start = "def" sp templated_name:w { w }
 
 def_args = "(" br-sp ")" { nil }
-         | "(" br-sp ident_list:l br-sp ")" { l }
+         | "(" br-sp "..." br-sp ")" { [varargs] }
+         | "(" br-sp args_list:l br-sp ")" { l }
+         | "(" br-sp args_list:l br-sp "," br-sp "..." br-sp ")"
+           { l + [varargs] }
 
 ret_type = - ":" - type_id:t { t }
 

@@ -1,0 +1,7 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+def main(argc:int, argv:char**) : int
+  printf "%\n".c_str, 20
+  return 0
+end
