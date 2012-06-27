@@ -300,6 +300,34 @@ module Talon
     end
   end
 
+  class LambdaType < ReferenceType
+    def initialize(name, llvm_type, arg_types, ret_type)
+      super name, llvm_type
+      @arg_types = arg_types
+      @ret_type = ret_type
+    end
+
+    attr_reader :arg_types, :ret_type
+
+    def find_operation(name)
+      raise "no - #{name}"
+      case name
+      when "type"
+        return GetElement.new(@tt, 0, "type")
+      else
+        raise UnknownOperationError, "unknown dynamic operation '#{name}'"
+      end
+    end
+
+    def find_signature(name)
+      raise "no - #{name}"
+      case name
+      when "type"
+        return Signature.new("type", [], @tt)
+      end
+    end
+  end
+
   class IntegerType < Type
     def initialize(name, llvm_type, bool_type)
       super name, llvm_type
@@ -525,6 +553,22 @@ module Talon
 
     def gen_typed_ident(ti)
       add ti.type
+    end
+
+    def gen_lambda_type(lt)
+      args = lt.arg_types.map { |x| add(x) }
+      ret  = add lt.ret_type
+
+      @ctx.lambda_type(args, ret)
+    end
+
+    def gen_lambda(l)
+      args = [@scope['Void']]
+      ret  =  @scope['Void']
+
+      add l.body
+
+      @ctx.lambda_type args, ret
     end
 
     def gen_ivar(i)
@@ -926,12 +970,15 @@ module Talon
         offset = 1
       end
 
+      return if meth.kind_of? AST::Lambda
+
       if meth.arguments
         meth.arguments.each_with_index do |a,i|
           pr = @func.params[offset + i]
           pr.name = a.name
 
           lt = @top.value_type a
+          @locals[a.name] = @top.type_of(a)
           @scope[a.name] = v = b.alloca(lt, a.name)
 
           b.store pr, v
@@ -1051,6 +1098,11 @@ module Talon
       obj
     end
 
+    def invoke_lambda(lam, call, lt)
+      args = convert_args lt, call, "lambda"
+      b.call lam, *args
+    end
+
     def gen_call(call, alloca=false)
       if r = call.receiver
         if r.kind_of? AST::Identifier
@@ -1082,6 +1134,12 @@ module Talon
 
         op.run self, call
       else
+        if t = @locals[call.method_name]
+          if t.kind_of? LambdaType
+            lam = b.load @scope[call.method_name]
+            return invoke_lambda(lam, call, t)
+          end
+        end
 
         if call.method_name == "reclaim"
           args = call.arguments.map { |a| g(a) }
@@ -1104,6 +1162,20 @@ module Talon
           raise "No call target found - #{call.method_name}"
         end
       end
+    end
+
+    def gen_lambda(lam)
+      t = @top.type_of(lam)
+
+      largs = t.arg_types.map { |x| x.value_type }
+      lret =  t.ret_type.value_type
+
+      func = @top.mod.functions.add "lambda", largs, lret
+
+      sub = LLVMFunctionVisitor.new @top, func, lam
+      sub.gen_and_return lam.body
+
+      func
     end
 
     def gen_templated_instance(ti, alloca=false)
@@ -1341,6 +1413,12 @@ module Talon
 
       v = LLVM::Type.void
 
+      if @meth.kind_of? AST::Lambda
+        b.ret_void
+        b.dispose
+        return
+      end
+
       t =  @top.value_type @meth.return_type
 
       if t == v
@@ -1552,6 +1630,7 @@ module Talon
 
       @runtime_types = {}
       @specific_dynamics = {}
+      @lambda_types = {}
     end
 
     attr_reader :typer
@@ -1610,6 +1689,29 @@ module Talon
       end
 
       cur
+    end
+
+    def lambda_type(args, ret)
+      key = [args, ret]
+
+      if t = @lambda_types[key]
+        return t
+      end
+
+      if args.size == 1 and args[0].name == "talon.Void"
+        args = []
+        largs = []
+      else
+        largs = args.map { |x| x.value_type }
+      end
+
+      lret =  ret.value_type
+
+      lt = LLVM::Type.function largs, lret
+
+      n = "lambda<#{args.map { |x| x.name }.join(",")}, #{ret.name}>"
+
+      @lambda_types[key] = LambdaType.new n, lt, args, ret
     end
 
     def expanded_template_name(name, *concrete)

@@ -94,6 +94,7 @@
 %% bool_false = ast False()
 %% ident = ast Identifier($name)
 %% typed_ident = ast TypedIdentifier($name, type)
+%% lambda_type = ast LambdaType(*arg_types, ret_type)
 %% templated_name = ast TemplatedName($name, arguments)
 %% method_def = ast MethodDefinition($name, *arguments, body, return_type)
 %% method_dec = ast MethodDeclaration($name, *arguments, return_type, attribute)
@@ -125,6 +126,7 @@
 %% import = ast Import(*segements)
 %% package = ast Package(*segments)
 %% varargs = ast VariableArguments()
+%% lambda = ast Lambda(body)
 
 eof = !.
 
@@ -195,6 +197,7 @@ template_args = template_arg:a br-sp "," br-sp template_args:t { [a] + t }
 type_mod  = type_mod:t "[]" ~array_type(t)
           | type_mod:t "*"  ~pointer_type(t)
           | type_mod:b "<" template_args:a ">" ~templated_type(b, a)
+          | "(" - type_list:a - "=>" - type_id:r ")" ~lambda_type(a,r)
           | word:w ~named_type(w)
 
 type_id = type_mod:w "::" type_id:t ~scoped_type(w, t)
@@ -228,6 +231,9 @@ maybe_ti = typed_ident | identifier
 
 args_list = maybe_ti:i br-sp "," br-sp args_list:l { [i] + l }
           | maybe_ti:i { [i] }
+
+type_list = type_id:i br-sp "," br-sp type_list:l { [i] + l }
+          | type_id:i { [i] }
 
 id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
         | identifier:a { [a] }
@@ -313,7 +319,8 @@ func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
 expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
             | expr:e { [e] }
 
-expr_list = br-sp expr_list_b:b br-sp { b }
+expr_list = br-sp lambda:b br-sp { [b] }
+          | br-sp expr_list_b:b br-sp { b }
 
 method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
                | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
@@ -350,6 +357,8 @@ assignable = assignable:r "[" expr_list:l "]" ~bracket(r,l)
 assign = assignable:i - "=" br-sp call:e ~assign(i, e)
 
 ret = "return" br-sp expr:e ~ret(e)
+
+lambda = "=>" - expr:e ~lambda(e)
 
 call = unary_operator:o expr:r ~unary(r,o)
      | !template_instance binary_send
