@@ -563,10 +563,21 @@ module Talon
     end
 
     def gen_lambda(l)
-      args = [@scope['Void']]
+      if l.arg
+        args = [add(l.arg)]
+      else
+        args = [@scope['Void']]
+      end
+
       ret  =  @scope['Void']
 
-      add l.body
+      new_scope do |s|
+        if l.arg
+          s[l.arg.name] = args.first
+        end
+
+        add l.body
+      end
 
       @ctx.lambda_type args, ret
     end
@@ -970,7 +981,20 @@ module Talon
         offset = 1
       end
 
-      return if meth.kind_of? AST::Lambda
+      if meth.kind_of? AST::Lambda
+        if meth.arg
+          pr = @func.params[0]
+          pr.name = meth.arg.name
+
+          lt = @top.value_type meth.arg
+          @locals[meth.arg.name] = @top.type_of(meth.arg)
+          @scope[meth.arg.name] = v = b.alloca(lt, meth.arg.name)
+
+          b.store pr, v
+        end
+
+        return
+      end
 
       if meth.arguments
         meth.arguments.each_with_index do |a,i|
@@ -1057,11 +1081,11 @@ module Talon
         end
       end
 
-      target.arg_types.zip(args).map do |req,ast|
+      args.zip(target.arg_types).map do |ast,req|
         is = @top.type_of(ast)
         val = g(ast)
 
-        unless req == is
+        if req and req != is
           if req.kind_of? DynamicType
             val = req.wrap(self, val, is)
           elsif !is.respond_to? :convert_to?

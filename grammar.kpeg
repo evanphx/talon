@@ -126,7 +126,7 @@
 %% import = ast Import(*segements)
 %% package = ast Package(*segments)
 %% varargs = ast VariableArguments()
-%% lambda = ast Lambda(body)
+%% lambda = ast Lambda(arg, body)
 
 eof = !.
 
@@ -358,7 +358,8 @@ assign = assignable:i - "=" br-sp call:e ~assign(i, e)
 
 ret = "return" br-sp expr:e ~ret(e)
 
-lambda = "=>" - expr:e ~lambda(e)
+lambda = typed_ident:i - "=>" - expr:e ~lambda(i, e)
+       | "=>" - expr:e ~lambda(nil, e)
 
 call = unary_operator:o expr:r ~unary(r,o)
      | !template_instance binary_send
