@@ -322,7 +322,8 @@ func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
 expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
             | expr:e { [e] }
 
-expr_list = br-sp lambda:b br-sp { [b] }
+expr_list = br-sp expr:e br-sp "," br-sp lambda:b br-sp { [e] + [b] }
+          | br-sp lambda:b br-sp { [b] }
           | br-sp expr_list_b:b br-sp { b }
 
 method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)

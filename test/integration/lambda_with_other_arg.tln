@@ -1,0 +1,11 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+def eval(x:int, f: (int => void)) : void
+  f(x)
+end
+
+def main(argc:int, argv:char**) : int
+  eval(20, x:int => printf "%d\n".c_str, x) -- check: 20
+  return 0
+end
