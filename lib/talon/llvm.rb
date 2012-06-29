@@ -55,6 +55,10 @@ module Talon
       @pointer ||= PointerType.new(self)
     end
 
+    def void?
+      false
+    end
+
     def llvm_type
       return @type if @type
 
@@ -76,6 +80,12 @@ module Talon
 
     def byte_size
       llvm_type.size
+    end
+  end
+
+  class VoidType < Type
+    def void?
+      true
     end
   end
 
@@ -326,6 +336,12 @@ module Talon
         return Signature.new("type", [], @tt)
       end
     end
+
+    def convert_to?(visit, val, req)
+      if req.kind_of?(LambdaType) and req.ret_type.void?
+        visit.b.bit_cast val, req.value_type
+      end
+    end
   end
 
   class IntegerType < Type
@@ -462,7 +478,7 @@ module Talon
       s = Scope.new
 
       bool = BooleanType.new("talon.Boolean")
-      void = Type.new("talon.Void", LLVM::Type.void)
+      void = VoidType.new("talon.Void", LLVM::Type.void)
       int = IntegerType.new("talon.Integer", LLVM::Int32, bool)
       char = Type.new("talon.Char")
       string = StringType.new "talon.String", ctx.string_type, char.pointer
@@ -569,14 +585,14 @@ module Talon
         args = [@scope['Void']]
       end
 
-      ret  =  @scope['Void']
+      ret  =  nil
 
       new_scope do |s|
         if l.arg
           s[l.arg.name] = args.first
         end
 
-        add l.body
+        ret = add l.body
       end
 
       @ctx.lambda_type args, ret
@@ -1438,12 +1454,11 @@ module Talon
       v = LLVM::Type.void
 
       if @meth.kind_of? AST::Lambda
-        b.ret_void
-        b.dispose
-        return
+        lt = @top.type_of @meth
+        t = lt.ret_type.value_type
+      else
+        t = @top.value_type @meth.return_type
       end
-
-      t =  @top.value_type @meth.return_type
 
       if t == v
         b.ret_void
