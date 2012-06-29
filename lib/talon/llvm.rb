@@ -584,8 +584,8 @@ module Talon
     end
 
     def gen_lambda(l)
-      if l.arg
-        args = [add(l.arg)]
+      if l.args
+        args = l.args.map { |x| add x }
       else
         args = [@scope['Void']]
       end
@@ -594,8 +594,8 @@ module Talon
 
       outer = @scope
       new_scope do |s|
-        if l.arg
-          s[l.arg.name] = args.first
+        if l.args
+          l.args.zip(args).each { |n,t| s[n.name] = t }
         end
 
         if l.capture
@@ -606,12 +606,10 @@ module Talon
       end
 
       if l.capture
-        captures = [@scope[l.capture]]
+        @ctx.specific_lambda_type args, ret, [@scope[l.capture]]
       else
-        captures = []
+        @ctx.lambda_type args, ret
       end
-
-      @ctx.specific_lambda_type args, ret, captures
     end
 
     def gen_ivar(i)
@@ -1017,15 +1015,20 @@ module Talon
         lself = @func.params[0]
         lself.name = "lambda"
 
-        if meth.arg
-          pr = @func.params[1]
-          pr.name = meth.arg.name
+        if meth.args
+          i = 1
 
-          lt = @top.value_type meth.arg
-          @locals[meth.arg.name] = @top.type_of(meth.arg)
-          @scope[meth.arg.name] = v = b.alloca(lt, meth.arg.name)
+          meth.args.each do |x|
+            pr = @func.params[i]
+            pr.name = x.name
 
-          b.store pr, v
+            lt = @top.value_type x
+            @locals[x.name] = @top.type_of(x)
+            @scope[x.name] = v = b.alloca(lt, x.name)
+
+            b.store pr, v
+            i += 1
+          end
         end
 
         if meth.capture

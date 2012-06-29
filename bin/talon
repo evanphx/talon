@@ -44,5 +44,7 @@ begin
 rescue Talon::CompileError => e
   puts "Error compiling #{file}:"
   puts "  #{e.message}"
+
+  puts e.backtrace
   exit 1
 end

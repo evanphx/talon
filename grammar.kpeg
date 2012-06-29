@@ -126,7 +126,7 @@
 %% import = ast Import(*segements)
 %% package = ast Package(*segments)
 %% varargs = ast VariableArguments()
-%% lambda = ast Lambda(arg, capture, body)
+%% lambda = ast Lambda(args, capture, body)
 
 eof = !.
 
@@ -237,6 +237,9 @@ type_list = type_id:i br-sp "," br-sp type_list:l { [i] + l }
 
 id_list = identifier:a br-sp "," br-sp id_list:l { [a] + l }
         | identifier:a { [a] }
+
+typed_id_list = typed_ident:a br-sp "," br-sp typed_id_list:l { [a] + l }
+              | typed_ident:a { [a] }
 
 templated_name = word:w "<" id_list:e ">" ~templated_name(w,e)
                | word:w
@@ -358,8 +361,8 @@ assign = assignable:i - "=" br-sp call:e ~assign(i, e)
 
 ret = "return" br-sp expr:e ~ret(e)
 
-lambda = typed_ident:i - "," - "*" word:w - "=>" - expr:e ~lambda(i, w, e)
-       | typed_ident:i - "=>" - expr:e ~lambda(i, nil, e)
+lambda = typed_ident:i - "," - "*" word:w - "=>" - expr:e ~lambda([i], w, e)
+       | typed_id_list:a - "=>" - expr:e ~lambda(a, nil, e)
        | "=>" - expr:e ~lambda(nil, nil, e)
 
 call = unary_operator:o expr:r ~unary(r,o)
