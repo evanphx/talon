@@ -598,15 +598,18 @@ module Talon
           l.args.zip(args).each { |n,t| s[n.name] = t }
         end
 
-        if l.capture
-          s[l.capture] = @scope[l.capture]
+        if l.captures
+          l.captures.each do |c|
+            s[c] = @scope[c]
+          end
         end
 
         ret = add l.body
       end
 
-      if l.capture
-        @ctx.specific_lambda_type args, ret, [@scope[l.capture]]
+      if l.captures
+        types = l.captures.map { |x| @scope[x] }
+        @ctx.specific_lambda_type args, ret, types
       else
         @ctx.lambda_type args, ret
       end
@@ -1031,10 +1034,15 @@ module Talon
           end
         end
 
-        if meth.capture
+        if meth.captures
           cap_types = @top.type_of(meth).capture_types
-          @locals[meth.capture] = cap_types.first
-          @scope[meth.capture] = b.gep(lself, [LLVM::Int(0), LLVM::Int(1)])
+
+          i = 1
+          meth.captures.zip(cap_types).each do |n,t|
+            @locals[n] = t
+            @scope[n] = b.gep(lself, [LLVM::Int(0), LLVM::Int(i)])
+            i += 1
+          end
         end
 
         return
@@ -1249,9 +1257,15 @@ module Talon
       r = add_alloca t.alloca_type, "lambda"
       b.store func, b.gep(r, [LLVM::Int(0), LLVM::Int(0)])
 
-      if lam.capture
-        b.store b.load(@scope[lam.capture]), \
-                b.gep(r, [LLVM::Int(0), LLVM::Int(1)])
+      if lam.captures
+
+        i = 1
+        lam.captures.each do |c|
+          b.store b.load(@scope[c]), \
+                  b.gep(r, [LLVM::Int(0), LLVM::Int(i)])
+
+          i += 1
+        end
       end
 
       r
