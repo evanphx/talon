@@ -361,7 +361,7 @@ assign = assignable:i - "=" br-sp call:e ~assign(i, e)
 
 ret = "return" br-sp expr:e ~ret(e)
 
-lambda = typed_ident:i - "," - "*" word:w - "=>" - expr:e ~lambda([i], w, e)
+lambda = typed_id_list:a - "," - "*" word:w - "=>" - expr:e ~lambda(a, w, e)
        | typed_id_list:a - "=>" - expr:e ~lambda(a, nil, e)
        | "=>" - expr:e ~lambda(nil, nil, e)
 
