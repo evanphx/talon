@@ -311,13 +311,14 @@ module Talon
   end
 
   class LambdaType < ReferenceType
-    def initialize(name, llvm_type, arg_types, ret_type)
+    def initialize(name, llvm_type, arg_types, ret_type, cap_types)
       super name, llvm_type
       @arg_types = arg_types
       @ret_type = ret_type
+      @capture_types = cap_types
     end
 
-    attr_reader :arg_types, :ret_type
+    attr_reader :arg_types, :ret_type, :capture_types
 
     def find_operation(name)
       raise "no - #{name}"
@@ -338,8 +339,12 @@ module Talon
     end
 
     def convert_to?(visit, val, req)
-      if req.kind_of?(LambdaType) and req.ret_type.void?
-        visit.b.bit_cast val, req.value_type
+      if req.kind_of?(LambdaType)
+        if @arg_types == req.arg_types
+          if @ret_type == req.ret_type or req.ret_type.void?
+            visit.b.bit_cast val, req.value_type
+          end
+        end
       end
     end
   end
@@ -587,15 +592,26 @@ module Talon
 
       ret  =  nil
 
+      outer = @scope
       new_scope do |s|
         if l.arg
           s[l.arg.name] = args.first
         end
 
+        if l.capture
+          s[l.capture] = @scope[l.capture]
+        end
+
         ret = add l.body
       end
 
-      @ctx.lambda_type args, ret
+      if l.capture
+        captures = [@scope[l.capture]]
+      else
+        captures = []
+      end
+
+      @ctx.specific_lambda_type args, ret, captures
     end
 
     def gen_ivar(i)
@@ -998,8 +1014,11 @@ module Talon
       end
 
       if meth.kind_of? AST::Lambda
+        lself = @func.params[0]
+        lself.name = "lambda"
+
         if meth.arg
-          pr = @func.params[0]
+          pr = @func.params[1]
           pr.name = meth.arg.name
 
           lt = @top.value_type meth.arg
@@ -1007,6 +1026,12 @@ module Talon
           @scope[meth.arg.name] = v = b.alloca(lt, meth.arg.name)
 
           b.store pr, v
+        end
+
+        if meth.capture
+          cap_types = @top.type_of(meth).capture_types
+          @locals[meth.capture] = cap_types.first
+          @scope[meth.capture] = b.gep(lself, [LLVM::Int(0), LLVM::Int(1)])
         end
 
         return
@@ -1140,7 +1165,10 @@ module Talon
 
     def invoke_lambda(lam, call, lt)
       args = convert_args lt, call, "lambda"
-      b.call lam, *args
+
+      func = b.load b.gep(lam, [LLVM::Int(0), LLVM::Int(0)])
+
+      b.call func, lam, *args
     end
 
     def gen_call(call, alloca=false)
@@ -1207,7 +1235,7 @@ module Talon
     def gen_lambda(lam)
       t = @top.type_of(lam)
 
-      largs = t.arg_types.map { |x| x.value_type }
+      largs = [t.value_type] + t.arg_types.map { |x| x.value_type }
       lret =  t.ret_type.value_type
 
       func = @top.mod.functions.add "lambda", largs, lret
@@ -1215,7 +1243,15 @@ module Talon
       sub = LLVMFunctionVisitor.new @top, func, lam
       sub.gen_and_return lam.body
 
-      func
+      r = add_alloca t.alloca_type, "lambda"
+      b.store func, b.gep(r, [LLVM::Int(0), LLVM::Int(0)])
+
+      if lam.capture
+        b.store b.load(@scope[lam.capture]), \
+                b.gep(r, [LLVM::Int(0), LLVM::Int(1)])
+      end
+
+      r
     end
 
     def gen_templated_instance(ti, alloca=false)
@@ -1730,13 +1766,7 @@ module Talon
       cur
     end
 
-    def lambda_type(args, ret)
-      key = [args, ret]
-
-      if t = @lambda_types[key]
-        return t
-      end
-
+    def specific_lambda_type(args, ret, captures)
       if args.size == 1 and args[0].name == "talon.Void"
         args = []
         largs = []
@@ -1744,13 +1774,40 @@ module Talon
         largs = args.map { |x| x.value_type }
       end
 
+      arg_names = args.map { |x| x.name }.join(",")
+
+      if captures.empty?
+        n = "lambda<(#{arg_names} => #{ret.name})>"
+      else
+        cap_names = captures.map { |x| "*#{x.name}" }.join(",")
+        n = "lambda<(#{arg_names} => #{ret.name}), #{cap_names}>"
+      end
+
+      lt = LLVM::Type.struct [], false, n
+
+      largs.unshift LLVM::Type.pointer(lt)
+
       lret =  ret.value_type
 
-      lt = LLVM::Type.function largs, lret
+      ft = LLVM::Type.function largs, lret
 
-      n = "lambda<#{args.map { |x| x.name }.join(",")}, #{ret.name}>"
+      elems = [LLVM::Type.pointer(ft)]
 
-      @lambda_types[key] = LambdaType.new n, lt, args, ret
+      elems += captures.map { |x| x.value_type }
+
+      lt.element_types = elems
+
+      LambdaType.new n, lt, args, ret, captures
+    end
+
+    def lambda_type(args, ret)
+      key = [args, ret]
+
+      if t = @lambda_types[key]
+        return t
+      end
+
+      @lambda_types[key] = specific_lambda_type(args, ret, [])
     end
 
     def expanded_template_name(name, *concrete)
