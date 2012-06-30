@@ -371,6 +371,7 @@ capture_list = "*" word:w - "," - capture_list:l { [w] + l }
 lambda = "(" - typed_id_list:a - ","
              - capture_list:c  - ")" - "->" - expr:e ~lambda(a, c, e)
        | "(" - typed_id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
+       | "(" - id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
        | "(" - capture_list:c  - ")" - "->" - expr:e ~lambda(nil, c, e)
        | "()" - "->" - expr:e ~lambda(nil, nil, e)
 
