@@ -322,7 +322,10 @@ func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
 expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
             | expr:e { [e] }
 
-expr_list = br-sp expr:e br-sp "," br-sp lambda:b br-sp { [e] + [b] }
+expr_list_l = expr:e br-sp "," br-sp expr_list_l:l { [e] + l }
+            | lambda:e { [e] }
+
+expr_list = br-sp expr_list_l:b br-sp { b }
           | br-sp lambda:b br-sp { [b] }
           | br-sp expr_list_b:b br-sp { b }
 
@@ -365,10 +368,11 @@ ret = "return" br-sp expr:e ~ret(e)
 capture_list = "*" word:w - "," - capture_list:l { [w] + l }
              | "*" word:w { [w] }
 
-lambda = typed_id_list:a - "," - capture_list:c - "=>" - expr:e ~lambda(a, c, e)
-       | typed_id_list:a - "=>" - expr:e ~lambda(a, nil, e)
-       | capture_list:c - "=>" - expr:e ~lambda(nil, c, e)
-       | "=>" - expr:e ~lambda(nil, nil, e)
+lambda = "(" - typed_id_list:a - ","
+             - capture_list:c  - ")" - "->" - expr:e ~lambda(a, c, e)
+       | "(" - typed_id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
+       | "(" - capture_list:c  - ")" - "->" - expr:e ~lambda(nil, c, e)
+       | "()" - "->" - expr:e ~lambda(nil, nil, e)
 
 call = unary_operator:o expr:r ~unary(r,o)
      | !template_instance binary_send

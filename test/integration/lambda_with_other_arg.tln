@@ -6,6 +6,6 @@ def eval(x:int, f: (int => void)) : void
 end
 
 def main(argc:int, argv:char**) : int
-  eval(20, x:int => printf "%d\n".c_str, x) -- check: 20
+  eval(20, (x:int) -> printf "%d\n".c_str, x) -- check: 20
   return 0
 end

@@ -8,6 +8,6 @@ end
 def main(argc:int, argv:char**) : int
   i := 2
   m := 3
-  eval( x:int, *i, *m => x + i + m) -- check: 6
+  eval( (x:int, *i, *m) -> x + i + m) -- check: 6
   return 0
 end

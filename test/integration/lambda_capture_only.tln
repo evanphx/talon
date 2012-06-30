@@ -7,6 +7,6 @@ end
 
 def main(argc:int, argv:char**) : int
   i := 10
-  eval( *i => i + 20) -- check: 30
+  eval( (*i) -> i + 20) -- check: 30
   return 0
 end

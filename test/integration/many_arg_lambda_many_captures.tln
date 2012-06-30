@@ -8,6 +8,6 @@ end
 def main(argc:int, argv:char**) : int
   i := 5
   m := 10
-  eval( x:int, y:int, *i, *m => printf "%d\n".c_str, x + y + i + m) -- check: 45
+  eval( (x:int, y:int, *i, *m) -> printf "%d\n".c_str, x + y + i + m) -- check: 45
   return 0
 end

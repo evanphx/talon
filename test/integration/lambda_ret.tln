@@ -6,6 +6,6 @@ def eval(f: (int => int)) : void
 end
 
 def main(argc:int, argv:char**) : int
-  eval( x:int => x + 10) -- check: 30
+  eval( (x:int) -> x + 10) -- check: 30
   return 0
 end

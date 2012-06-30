@@ -7,6 +7,6 @@ end
 
 def main(argc:int, argv:char**) : int
   i := 5
-  eval( x:int, y:int, *i => printf "%d\n".c_str, x + y + i) -- check: 35
+  eval( (x:int, y:int, *i) -> printf "%d\n".c_str, x + y + i) -- check: 35
   return 0
 end
