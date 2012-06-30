@@ -333,7 +333,9 @@ method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
                | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
                | literal
 
-method_np_arg = grouped
+method_np_arg = 
+                lambda
+              | grouped
               | binary_send
               | method_np_arg:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
               | method_np_arg:r "." word:w ~call(r,w,nil)
