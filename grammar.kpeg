@@ -262,10 +262,10 @@ def = def_start:w def_args?:a ret_type?:t expr_end "end"
 dec = attribute?:ab "dec" sp templated_name:w def_args?:a ret_type:t
      ~method_dec(w,a,t,ab)
 
-var = "var" sp word:i sp ":" sp type_id:t sp "=" sp call:e ~var(i,t,e)
-    | "var" sp word:i sp "=" sp call:e ~var(i,nil,e)
+var = "var" sp word:i sp ":" sp type_id:t sp "=" sp expr:e ~var(i,t,e)
+    | "var" sp word:i sp "=" sp expr:e ~var(i,nil,e)
     | "var" sp word:i sp ":" sp type_id:t ~var_decl(i,t)
-    | word:i sp ":=" sp call:e ~var(i,nil,e)
+    | word:i sp ":=" sp expr:e ~var(i,nil,e)
 
 ivar_decl = "var" sp "@" word:w sp ":" sp type_id:t ~ivar_decl(w,t)
 
@@ -390,7 +390,7 @@ sequence = many_stmts:e
 
 stmt = if | while | case | var | assign | ret | expr
 
-expr = call
+expr = lambda | call
 
 grouped = "(" expr:e ")" ~group(e)
 
