@@ -375,6 +375,7 @@ lambda = "(" - typed_id_list:a - ","
        | "(" - typed_id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
        | "(" - id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
        | "(" - capture_list:c  - ")" - "->" - expr:e ~lambda(nil, c, e)
+       | identifier:i - "->" - expr:e ~lambda([i], nil, e)
        | "()" - "->" - expr:e ~lambda(nil, nil, e)
 
 call = unary_operator:o expr:r ~unary(r,o)
