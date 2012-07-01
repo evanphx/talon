@@ -353,6 +353,10 @@ module Talon
       end
 
       if t = @scope[c.method_name]
+        if t.kind_of? LambdaType
+          return t.ret_type
+        end
+
         return t
       end
 
