@@ -1,0 +1,16 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+def eval(f: (int => int)) : void
+  i := f(15)
+  printf("%d\n".c_str, i) -- check: 35
+end
+
+def main(argc:int, argv:char**) : int
+  eval (x:int) -> {
+         i := x * 2
+         return i + 5
+       }
+
+  return 0
+end

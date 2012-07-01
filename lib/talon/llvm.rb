@@ -251,6 +251,12 @@ module Talon
       @ctx.lambda_type(args, ret)
     end
 
+    def gen_lambda_stmts(ls)
+      ls.body.each { |x| add x }
+
+      @scope['$return'] || @scope['Void']
+    end
+
     def gen_lambda(l)
       if l.args
         args = l.args.map { |x|
@@ -320,6 +326,10 @@ module Talon
 
     def gen_var(var)
       t = add var.expression
+      if t.void?
+        raise TypeMismatchError, "Attempted to use void as a value"
+      end
+
       @scope[var.identifier] = t
       @void
     end
@@ -470,7 +480,10 @@ module Talon
     end
 
     def gen_ret(n)
-      add n.value
+      t = add n.value
+
+      @scope['$return'] = t
+
       @void
     end
 
@@ -925,6 +938,12 @@ module Talon
           raise "No call target found - #{call.method_name}"
         end
       end
+    end
+
+    def gen_lambda_stmts(ls)
+      ls.body.each { |x| g x }
+
+      nil
     end
 
     def gen_lambda(lam)

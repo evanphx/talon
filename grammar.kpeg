@@ -127,6 +127,7 @@
 %% package = ast Package(*segments)
 %% varargs = ast VariableArguments()
 %% lambda = ast Lambda(args, captures, body)
+%% lambda_stmts = ast LambdaStatements(body)
 
 eof = !.
 
@@ -370,13 +371,16 @@ ret = "return" br-sp expr:e ~ret(e)
 capture_list = "*" word:w - "," - capture_list:l { [w] + l }
              | "*" word:w { [w] }
 
+
+lambda_body = expr | "{" br-sp many_stmts:e br-sp "}" ~lambda_stmts(e)
+
 lambda = "(" - typed_id_list:a - ","
-             - capture_list:c  - ")" - "->" - expr:e ~lambda(a, c, e)
-       | "(" - typed_id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
-       | "(" - id_list:a - ")" - "->" - expr:e ~lambda(a, nil, e)
-       | "(" - capture_list:c  - ")" - "->" - expr:e ~lambda(nil, c, e)
-       | identifier:i - "->" - expr:e ~lambda([i], nil, e)
-       | "()" - "->" - expr:e ~lambda(nil, nil, e)
+             - capture_list:c  - ")" - "->" - lambda_body:e ~lambda(a, c, e)
+       | "(" - typed_id_list:a - ")" - "->" - lambda_body:e ~lambda(a, nil, e)
+       | "(" - id_list:a - ")" - "->" - lambda_body:e ~lambda(a, nil, e)
+       | "(" - capture_list:c  - ")" - "->" - lambda_body:e ~lambda(nil, c, e)
+       | identifier:i - "->" - lambda_body:e ~lambda([i], nil, e)
+       | "()" - "->" - lambda_body:e ~lambda(nil, nil, e)
 
 call = unary_operator:o expr:r ~unary(r,o)
      | !template_instance binary_send
