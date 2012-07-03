@@ -318,6 +318,7 @@ call_np_list = method_np_arg:e - "," br-sp call_np_list:l { [e] + l }
              | method_np_arg:e { [e] }
 
 named_arg_np = word:w ":" br-sp method_np_arg:e ~named_arg(w,e)
+             | method_np_arg
 
 named_arg_list_np = named_arg_np:e br-sp "," br-sp named_arg_list_np:l { [e] + l }
                   | named_arg_np:e { [e] }

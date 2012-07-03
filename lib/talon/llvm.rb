@@ -22,6 +22,9 @@ module Talon
   class UnknownOperationError < CompileError
   end
 
+  class BadCallError < CompileError
+  end
+
   class GenVisitor
     Dispatch = {}
 
@@ -836,9 +839,15 @@ module Talon
 
       # reorder args based on any named args
     
-      if args.first.kind_of? AST::NamedArgument
-        positional = []
-        args.each do |x|
+      positional = []
+
+      seen_named = false
+
+      args.each do |x|
+        case x
+        when AST::NamedArgument
+          seen_named = true
+
           index = target.arguments.index(x.name)
 
           unless index
@@ -847,10 +856,17 @@ module Talon
           end
 
           positional[index] = x.expr
-        end
+        else
+          if seen_named
+            raise BadCallError,
+                  "Unable to use positional arguments after named arguments"
+          end
 
-        args = positional
+          positional << x
+        end
       end
+
+      args = positional
 
       args.zip(target.arg_types).map do |ast,req|
         is = @top.type_of(ast)
