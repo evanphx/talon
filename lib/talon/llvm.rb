@@ -230,6 +230,7 @@ module Talon
 
         outer.add_method Signature.new(meth.name, arg_types, 
                                       add(meth.return_type))
+
         add meth.body
       end
 
@@ -332,6 +333,10 @@ module Talon
 
       @scope[var.identifier] = t
       @void
+    end
+
+    def gen_named_arg(na)
+      add na.expr
     end
 
     def gen_call(c)
@@ -462,8 +467,12 @@ module Talon
       l = add op.receiver
       r = add op.argument
 
-      o = l.find_operation op.operator
-      o.calc_type r
+      if l.kind_of? TypeVariable
+        DeriveType.new l, op.operator, r
+      else
+        o = l.find_operation op.operator
+        o.calc_type r
+      end
     end
 
     def gen_ident(i)
@@ -823,6 +832,18 @@ module Talon
         if need != got
           raise MissingArgumentsError, "missing arguments to '#{method_name}' (needed #{need}, got #{got})"
         end
+      end
+
+      # reorder args based on any named args
+    
+      if args.first.kind_of? AST::NamedArgument
+        positional = []
+        args.each do |x|
+          index = target.arguments.index(x.name)
+          positional[index] = x.expr
+        end
+
+        args = positional
       end
 
       args.zip(target.arg_types).map do |ast,req|
@@ -1593,7 +1614,7 @@ module Talon
     end
 
     class Function
-      def initialize(func, arg_types, ret_type, opts=nil)
+      def initialize(func, arg_types, ret_type, opts=nil, names=[])
         @func = func
         @arg_types = arg_types
         @ret_type = ret_type
@@ -1603,9 +1624,11 @@ module Talon
         else
           @varargs = false
         end
+
+        @arguments = names
       end
 
-      attr_reader :func, :arg_types, :ret_type, :varargs
+      attr_reader :func, :arg_types, :ret_type, :varargs, :arguments
     end
 
     def gen_method_dec(dec)
@@ -1623,6 +1646,8 @@ module Talon
             args = dec.arguments
           end
 
+          names = args.map { |a| a.name }
+
           arg_types = args.map { |a| type_of(a) }
 
           args = arg_types.map { |a| a.value_type }
@@ -1631,7 +1656,8 @@ module Talon
           ret = ret_type.value_type
 
           func = @mod.functions.add name, args, ret, opts
-          @functions[dec.name] = Function.new(func, arg_types, ret_type, opts)
+          @functions[dec.name] = Function.new(func, arg_types,
+                                              ret_type, opts, names)
         end
       end
     end
@@ -1639,9 +1665,13 @@ module Talon
     def gen_method_def(meth)
       if meth.arguments
         arg_types = meth.arguments.map { |a| type_of(a) }
+        names = meth.arguments.map { |a| a.name }
       else
         arg_type = []
+        names = []
       end
+
+      opts = {}
 
       args = arg_types.map { |a| a.value_type }
 
@@ -1655,7 +1685,8 @@ module Talon
       end
 
       func = @mod.functions.add meth_name, args, ret
-      @functions[meth.name] = Function.new(func, arg_types, ret_type)
+      @functions[meth.name] = Function.new(func, arg_types, ret_type,
+                                           opts, names)
 
       inner = LLVMFunctionVisitor.new self, func, meth
       inner.gen_and_return meth.body

@@ -405,6 +405,8 @@ module Talon
       @forward = nil
     end
 
+    attr_reader :forward
+
     def void?
       false
     end
@@ -413,8 +415,13 @@ module Talon
       @forward == nil
     end
 
+    def resolve
+      raise "Using unresolved TypeVariable" unless @forward
+      @forward
+    end
+
     def ==(other)
-      @forward == other
+      resolve == other
     end
 
     def update(o)
@@ -422,15 +429,36 @@ module Talon
     end
 
     def name
-      @forward.name
+      resolve.name
     end
 
     def llvm_type
-      @forward.llvm_type
+      resolve.llvm_type
     end
 
     def value_type
-      @forward.value_type
+      resolve.value_type
+    end
+
+    def find_operation(op)
+      resolve.find_operation(op)
+    end
+  end
+
+  class DeriveType < TypeVariable
+    def initialize(root, operator, right)
+      @root = root
+      @operator = operator
+      @right = right
+    end
+
+    def resolve
+      o = @root.resolve.find_operation @operator
+      update o.calc_type(@right)
+    end
+
+    def find_operation(op)
+      resolve.find_operation(op)
     end
   end
 end

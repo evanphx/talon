@@ -128,6 +128,7 @@
 %% varargs = ast VariableArguments()
 %% lambda = ast Lambda(args, captures, body)
 %% lambda_stmts = ast LambdaStatements(body)
+%% named_arg = ast NamedArgument(name, expr)
 
 eof = !.
 
@@ -295,7 +296,7 @@ inc = "include" sp word:name ~inc(name)
 import = "import" sp (word:w ".")*:left word:right ~import(left + [right])
 package = "package" sp (word:w ".")*:left word:right ~package(left + [right])
 
-operator_chars = /[~`!#$\%^\&*\\+\-\/?:<=>\|]/
+operator_chars = /[~`!#$\%^\&*\\+\-\/?<=>\|]/
 unary_operator = < operator_chars > { text }
 binary_operator = !"--" < operator_chars+ > { text }
 
@@ -316,9 +317,17 @@ embed_rhs = literal:r "." word:w ~call(r,w)
 call_np_list = method_np_arg:e - "," br-sp call_np_list:l { [e] + l }
              | method_np_arg:e { [e] }
 
-method_call_np = method_np_recv:r "." word:w sp call_np_list:l ~call(r,w,l)
+named_arg_np = word:w ":" br-sp method_np_arg:e ~named_arg(w,e)
 
-func_call_np   = word:w sp call_np_list:l ~call(nil,w,l)
+named_arg_list_np = named_arg_np:e br-sp "," br-sp named_arg_list_np:l { [e] + l }
+                  | named_arg_np:e { [e] }
+
+call_args_np = named_arg_list_np | call_np_list
+
+method_call_np = method_np_recv:r "." word:w sp
+                 call_args_np:l ~call(r,w,l)
+
+func_call_np   = word:w sp call_args_np:l ~call(nil,w,l)
 
 expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
             | expr:e { [e] }
