@@ -350,6 +350,7 @@ method_np_arg =
               | method_np_arg:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
               | method_np_arg:r "." word:w ~call(r,w,nil)
               | method_np_arg:r "[" expr_list:l "]" ~bracket(r,l)
+              | word:w "(" expr_list?:l ")" ~call(nil,w,l)
               | literal
 
 method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)

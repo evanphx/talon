@@ -1,0 +1,11 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+def get(x:int) : int
+  return x * 2
+end
+
+def main(argc:int, argv:char**) : int
+  printf "%d\n".c_str, get(20) -- check: 40
+  return 0
+end
