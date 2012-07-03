@@ -840,6 +840,12 @@ module Talon
         positional = []
         args.each do |x|
           index = target.arguments.index(x.name)
+
+          unless index
+            raise MissingArgumentsError,
+                  "Unknown argument '#{x.name}' for '#{method_name}'"
+          end
+
           positional[index] = x.expr
         end
 
