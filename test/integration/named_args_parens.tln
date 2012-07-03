@@ -1,0 +1,14 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+def transform(start: int, through: (int => int)) : int
+  through(start)
+end
+
+def main(argc:int, argv:char**) : int
+  x := transform(start: 6, through: (x:int) -> x * 2)
+
+  printf "%d\n".c_str, x -- check: 12
+
+  return 0
+end

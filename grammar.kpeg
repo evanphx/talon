@@ -340,7 +340,14 @@ expr_list = br-sp expr_list_l:b br-sp { b }
           | br-sp lambda:b br-sp { [b] }
           | br-sp expr_list_b:b br-sp { b }
 
-method_np_recv = method_np_recv:r "." word:w "(" expr_list:l ")" ~call(r,w,l)
+named_arg = word:w ":" br-sp expr:e ~named_arg(w,e)
+          | expr
+
+call_args = named_arg:e br-sp "," br-sp call_args:l { [e] + l }
+          | named_arg:e { [e] }
+
+method_np_recv = method_np_recv:r "." word:w
+                 "(" br-sp call_args?:l br-sp ")" ~call(r,w,l)
                | method_np_recv:r "[" expr_list:l "]" ~bracket(r,l)
                | literal
 
@@ -348,23 +355,25 @@ method_np_arg =
                 lambda
               | grouped
               | binary_send
-              | method_np_arg:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+              | method_np_arg:r "." word:w
+                "(" br-sp call_args?:l br-sp ")" ~call(r,w,l)
               | method_np_arg:r "." word:w ~call(r,w,nil)
               | method_np_arg:r "[" expr_list:l "]" ~bracket(r,l)
-              | word:w "(" expr_list?:l ")" ~call(nil,w,l)
+              | word:w "(" call_args?:l ")" ~call(nil,w,l)
               | literal
 
-method_call = method_call:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+method_call = method_call:r "." word:w
+              "(" br-sp call_args?:l br-sp ")" ~call(r,w,l)
             | method_call:r "." word:w ~call(r,w,nil)
             | method_call:r "[" expr_list:l "]" ~bracket(r,l)
-            | word:w "(" expr_list?:l ")" ~call(nil,w,l)
-            | word:w "<" word:t ">" "(" expr_list?:l ")"
+            | word:w "(" br-sp call_args?:l br-sp ")" ~call(nil,w,l)
+            | word:w "<" word:t ">" "(" br-sp call_args?:l br-sp ")"
                 ~templated_instance(w,t,l)
             | literal
 
-bin_expr = bin_expr:r "." word:w "(" expr_list?:l ")" ~call(r,w,l)
+bin_expr = bin_expr:r "." word:w "(" br-sp call_args?:l br-sp ")" ~call(r,w,l)
          | bin_expr:r "." word:w ~call(r,w,nil)
-         | word:w "(" expr_list?:l ")" ~call(nil,w,l)
+         | word:w "(" br-sp call_args?:l br-sp ")" ~call(nil,w,l)
          | literal
 
 binary_c = (- binary_operator:o br-sp bin_expr:e { [o, e] })+:bs { bs.flatten }
