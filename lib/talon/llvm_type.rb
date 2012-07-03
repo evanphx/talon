@@ -119,6 +119,39 @@ module Talon
     end
   end
 
+  class DataType < ReferenceType
+    def initialize(name, llvm_type)
+      super
+
+      @cases = []
+    end
+
+    attr_reader :cases
+
+    def add_case(name)
+      c = SpecificDataType.new(name, @type, self, @cases.size)
+      @cases << c
+      c
+    end
+  end
+
+  class SpecificDataType < ReferenceType
+    def initialize(name, llvm_type, generic, code)
+      super name, llvm_type
+      @generic = generic
+      @code = code
+      @singleton = nil
+    end
+
+    attr_reader :generic, :code
+
+    attr_accessor :singleton
+
+    def convert_to?(visit, val, req)
+      return val if req == @generic
+    end
+  end
+
   class StringType < ReferenceType
     def initialize(name, llvm_type, data_type)
       super name, llvm_type

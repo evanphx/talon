@@ -129,6 +129,7 @@
 %% lambda = ast Lambda(args, captures, body)
 %% lambda_stmts = ast LambdaStatements(body)
 %% named_arg = ast NamedArgument(name, expr)
+%% data = ast Data(name, cases)
 
 eof = !.
 
@@ -153,7 +154,7 @@ float = number:w "." number:f ~number("#{w}.#{f}".to_f)
 true = "true" ~bool_true()
 false = "false" ~bool_false()
 
-keyword = "if" | "end" | "else" | "true" | "false"
+keyword = "if" | "end" | "else" | "true" | "false" | "when"
 
 word = !keyword < /[a-zA-Z_][a-zA-Z0-9_]*/ > { text }
 
@@ -292,6 +293,11 @@ trait = "trait" sp templated_name:name expr_end "end"
       | "trait" sp templated_name:name expr_end l2_seq:e expr_end "end"
         ~trait_def(name,e)
 
+data = "data" sp word:t - "=" br-sp data_cases:c ~data(t,c)
+
+data_cases = word:w - "|" br-sp data_cases:c { [w] + c }
+           | word:w { [w] }
+
 inc = "include" sp word:name ~inc(name)
 import = "import" sp (word:w ".")*:left word:right ~import(left + [right])
 package = "package" sp (word:w ".")*:left word:right ~package(left + [right])
@@ -414,7 +420,7 @@ expr = lambda | call
 
 grouped = "(" expr:e ")" ~group(e)
 
-toplevel = dec | def | class | trait | import | package | inc
+toplevel = dec | def | class | trait | data | import | package | inc
 
 many_top  = - comment:e many_top:m { [e] + m }
           | - toplevel:e expr_end many_top:m { [e] + m }

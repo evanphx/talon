@@ -1,0 +1,23 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+data Color = Red | Blue | Green
+
+def show(f: Color) : void
+  case f
+  when r:Red
+    printf "red\n".c_str
+  when b:Blue
+    printf "blue\n".c_str
+  when g:Green
+    printf "green\n".c_str
+  end
+end
+
+def main(argc:int, argv:char**) : int
+  show Blue()  -- check: blue
+  show Red()   -- check: red
+  show Green() -- check: green
+
+  return 0
+end

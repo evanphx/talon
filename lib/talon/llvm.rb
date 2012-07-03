@@ -248,6 +248,21 @@ module Talon
       add ti.type
     end
 
+    def gen_data(d)
+      elems = [LLVM::Int32]
+      lltype = LLVM::Type.struct elems, false, d.name
+
+      t = DataType.new(d.name, lltype)
+
+      @scope[d.name] = t
+
+      d.cases.each do |c|
+        @scope[c] = add_type(c, t.add_case(c))
+      end
+
+      t
+    end
+
     def gen_lambda_type(lt)
       args = lt.arg_types.map { |x| add(x) }
       ret  = add lt.ret_type
@@ -898,10 +913,17 @@ module Talon
     end
 
     def instantiate_type(call, t, alloca=false)
+      if t.kind_of? SpecificDataType
+        if s = t.singleton
+          return s
+        end
+      end
+
       if alloca
         ptr = b.alloca t.alloca_type, "alloca.#{call.method_name}"
       else
-        ptr = b.call @top.context.malloc, t.byte_size, "alloc.#{call.method_name}"
+        ptr = b.call @top.context.malloc, t.byte_size,
+                     "alloc.#{call.method_name}"
       end
 
       obj = b.bit_cast ptr, t.value_type
@@ -1170,6 +1192,56 @@ module Talon
     end
 
     def gen_case_node(i)
+      et = @top.type_of(i.condition)
+
+      if et.kind_of? DynamicType
+        return gen_dynamic_case_node(i)
+      end
+
+      unless et.kind_of? DataType
+        raise TypeMismatchError, "Unsupported variable for case"
+      end
+
+      ev = g i.condition
+
+      code = b.load b.gep(ev, [LLVM::Int(0), LLVM::Int(0)])
+
+      i.whens.each do |w|
+        need = @top.type_of(w.var)
+
+        unless need.generic == et
+          raise TypeMismatchError,
+                "Type '#{need.name}' not a variant of '#{et.name}'"
+        end
+
+        c = b.icmp :eq, code, LLVM::Int(need.code)
+
+        cont = new_block "continue"
+        body = new_block "body"
+
+        b.cond c, body, cont
+
+        set_block body
+
+        cast = b.bit_cast ev, need.value_type
+
+        r = add_alloca need.value_type
+
+        @locals[w.var.name] = need
+        @scope[w.var.name] = r
+
+        b.store cast, r
+
+        g w.body
+
+        b.br cont
+        set_block cont
+      end
+
+      nil
+    end
+
+    def gen_dynamic_case_node(i)
       et = @top.type_of(i.condition)
       ev = g i.condition
 
@@ -1573,6 +1645,8 @@ module Talon
 
       @functions = {}
       @imports = {}
+
+      @variables = {}
     end
 
     attr_reader :context, :imports, :mod, :typer, :traits, :functions
@@ -1712,6 +1786,33 @@ module Talon
 
       inner = LLVMFunctionVisitor.new self, func, meth
       inner.gen_and_return meth.body
+    end
+
+    def gen_data(d)
+      if pkg = @typer.scope.name
+        name = "#{pkg}.#{d.name}"
+      else
+        name = d.name
+      end
+
+      t = @typer.type_of(d)
+
+      i = 0
+      t.cases.each do |c|
+        elems = [LLVM::Int(i)]
+
+        init = LLVM::ConstantStruct.const_named t.llvm_type, elems
+        x = @mod.globals.add t.llvm_type, name(c.name)
+        x.initializer = init
+        x.linkage = :private
+        x.global_constant = 1
+
+        c.singleton = x
+
+        @variables[c.name] = x
+
+        i += 1
+      end
     end
 
     def gen_class_def(cls)
