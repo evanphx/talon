@@ -330,15 +330,8 @@ method_call_np = method_np_recv:r "." word:w sp
 
 func_call_np   = word:w sp call_args_np:l ~call(nil,w,l)
 
-expr_list_b = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
-            | expr:e { [e] }
-
-expr_list_l = expr:e br-sp "," br-sp expr_list_l:l { [e] + l }
-            | lambda:e { [e] }
-
-expr_list = br-sp expr_list_l:b br-sp { b }
-          | br-sp lambda:b br-sp { [b] }
-          | br-sp expr_list_b:b br-sp { b }
+expr_list = expr:e br-sp "," br-sp expr_list_b:l { [e] + l }
+          | expr:e { [e] }
 
 named_arg = word:w ":" br-sp expr:e ~named_arg(w,e)
           | expr
