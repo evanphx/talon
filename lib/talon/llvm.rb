@@ -252,15 +252,32 @@ module Talon
       elems = [LLVM::Int32]
       lltype = LLVM::Type.struct elems, false, d.name
 
-      t = DataType.new(d.name, lltype)
+      dt = DataType.new(d.name, lltype)
 
-      @scope[d.name] = t
+      @scope[d.name] = dt
 
       d.cases.each do |c|
-        @scope[c] = add_type(c, t.add_case(c))
+        body = [lltype]
+        lt = LLVM::Type.struct [], false, c.name
+
+        t = add_type c.name, dt.add_case(c.name, lt)
+        @scope[c.name] = t
+
+        if c.args
+          i = 1
+
+          c.args.each do |a|
+            st = add(a)
+            t.add_arg a.name, st, i
+            body << st.value_type
+            i += 1
+          end
+        end
+
+        lt.element_types = body
       end
 
-      t
+      dt
     end
 
     def gen_lambda_type(lt)
@@ -932,7 +949,19 @@ module Talon
         args = convert_args m, call, "#{t.name}#initialize"
 
         m.invoke self, obj, *args
+      elsif t.kind_of? SpecificDataType
+        b.store LLVM::Int(t.code),
+                b.gep(obj, [LLVM::Int(0), LLVM::Int(0), LLVM::Int(0)])
+
+        args = convert_args t, call, "#{t.name}#initialize"
+
+        i = 1
+        args.each do |a|
+          b.store a, b.gep(obj, [LLVM::Int(0), LLVM::Int(i)])
+          i += 1
+        end
       end
+
       obj
     end
 
@@ -1292,6 +1321,8 @@ module Talon
     def gen_ident(i)
       if l = @scope[i.name]
         b.load l, "#{i.name}.loaded"
+      elsif l = @top.variables[i.name]
+        l
       else
         raise "uninitialized local '#{i.name}' used"
       end
@@ -1650,6 +1681,7 @@ module Talon
     end
 
     attr_reader :context, :imports, :mod, :typer, :traits, :functions
+    attr_reader :variables
 
     def scope
       @typer.scope
@@ -1797,21 +1829,20 @@ module Talon
 
       t = @typer.type_of(d)
 
-      i = 0
       t.cases.each do |c|
-        elems = [LLVM::Int(i)]
+        if c.no_args?
+          i1 = LLVM::ConstantStruct.const_named t.llvm_type, [LLVM::Int(c.code)]
+          init = LLVM::ConstantStruct.const_named c.llvm_type, [i1]
 
-        init = LLVM::ConstantStruct.const_named t.llvm_type, elems
-        x = @mod.globals.add t.llvm_type, name(c.name)
-        x.initializer = init
-        x.linkage = :private
-        x.global_constant = 1
+          x = @mod.globals.add c.llvm_type, name(c.name)
+          x.initializer = init
+          x.linkage = :private
+          x.global_constant = 1
 
-        c.singleton = x
+          c.singleton = x
 
-        @variables[c.name] = x
-
-        i += 1
+          @variables[c.name] = x
+        end
       end
     end
 

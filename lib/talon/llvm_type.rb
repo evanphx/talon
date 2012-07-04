@@ -128,8 +128,8 @@ module Talon
 
     attr_reader :cases
 
-    def add_case(name)
-      c = SpecificDataType.new(name, @type, self, @cases.size)
+    def add_case(name, lt)
+      c = SpecificDataType.new(name, lt, self, @cases.size)
       @cases << c
       c
     end
@@ -141,15 +141,45 @@ module Talon
       @generic = generic
       @code = code
       @singleton = nil
+      @args = {}
+      @arg_types = []
     end
 
-    attr_reader :generic, :code
+    attr_reader :generic, :code, :arg_types
 
     attr_accessor :singleton
 
     def convert_to?(visit, val, req)
-      return val if req == @generic
+      if req == @generic
+        visit.b.bit_cast val, @generic.value_type
+      end
     end
+
+    def no_args?
+      @args.empty?
+    end
+
+    def add_arg(name, type, index)
+      @args[name] = [type, index]
+      @arg_types << type
+    end
+
+    def find_signature(name)
+      type, index = @args[name]
+
+      if type
+        return Signature.new(name, [], type)
+      end
+    end
+
+    def find_operation(name)
+      type, index = @args[name]
+
+      if index
+        return GetElement.new(type, index, name)
+      end
+    end
+
   end
 
   class StringType < ReferenceType

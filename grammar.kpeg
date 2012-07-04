@@ -130,6 +130,7 @@
 %% lambda_stmts = ast LambdaStatements(body)
 %% named_arg = ast NamedArgument(name, expr)
 %% data = ast Data(name, cases)
+%% data_case = ast DataCase(name, *args)
 
 eof = !.
 
@@ -295,8 +296,11 @@ trait = "trait" sp templated_name:name expr_end "end"
 
 data = "data" sp word:t - "=" br-sp data_cases:c ~data(t,c)
 
-data_cases = word:w - "|" br-sp data_cases:c { [w] + c }
-           | word:w { [w] }
+data_case = word:w "(" typed_id_list:ti ")" ~data_case(w, ti)
+          | word:w ~data_case(w, nil)
+
+data_cases = data_case:w - "|" br-sp data_cases:c { [w] + c }
+           | data_case:w { [w] }
 
 inc = "include" sp word:name ~inc(name)
 import = "import" sp (word:w ".")*:left word:right ~import(left + [right])

@@ -1,0 +1,20 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+data Tree = Nil | Node(left: Tree, value: int, right: Tree)
+
+def add(f: Tree) : int
+  var i = 0
+
+  case f
+  when n: Node
+    i = add(n.left) + n.value + add(n.right)
+  end
+
+  return i
+end
+
+def main(argc: int, argv: char**) : int
+  t := Node Node(Nil, 1, Nil), 2, Node(Nil, 3, Nil)
+  printf "%d\n".c_str, add(t) -- check: 6
+end
