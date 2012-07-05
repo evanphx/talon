@@ -1,0 +1,21 @@
+%Import(name="printf")
+dec printf(str:char*, ...) : int
+
+data List<T> = Nil | Node(value: T, rest: List<T>)
+
+def add(f: List<int>) : int
+  var i = 0
+
+  case f
+  when n: Node
+    i = n.value + add(n.rest)
+  end
+
+  return i
+end
+
+def main(argc: int, argv: char**) : int
+  t := Node<int>(1, Node<int>(2, Node<int>(3, Nil<int>())))
+
+  printf "%d\n".c_str, add(t) -- check: 6
+end

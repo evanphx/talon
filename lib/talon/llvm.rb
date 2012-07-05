@@ -132,6 +132,27 @@ module Talon
     def body
       @ast.body
     end
+
+    def find_expanded(type_args)
+      @instances.detect { |et| et.concrete == type_args }
+    end
+  end
+
+  class AbstractDataCase
+    def initialize(ast, root)
+      @ast = ast
+      @root = root
+    end
+
+    def expand(name, type_args)
+      concrete = @root.find_expanded(type_args)
+
+      unless concrete
+        raise "No expanded type for '#{name}'"
+      end
+
+      concrete.type.cases.find { |c| c.name == name }
+    end
   end
 
   class TypeCalculator < GenVisitor
@@ -248,7 +269,91 @@ module Talon
       add ti.type
     end
 
+    def expand_data_template(template, args)
+      t = args.first
+
+      # Copy so the type entries for the AST are unique
+      ast = Marshal.load Marshal.dump(template.ast)
+
+      name = @ctx.expanded_template_name(template.name, t)
+
+      types = []
+
+      dt = nil
+      outer = @scope
+
+      new_scope do |s|
+        s[template.arguments.first.name] = t
+
+        elems = [LLVM::Int32]
+        lltype = LLVM::Type.struct elems, false, name
+
+        dt = DataType.new(name, lltype)
+
+        outer[name] = dt
+
+        template.instances << ExpandedTemplate.new(template, dt, [t])
+
+        s[name] = dt
+
+        ast.cases.each do |c|
+          body = [lltype]
+          lt = LLVM::Type.struct [], false, c.name
+
+          t = add_type c.name, dt.add_case(c.name, lt)
+          s[c.name] = t
+
+          if c.args
+            i = 1
+
+            c.args.each do |a|
+              st = add(a)
+              t.add_arg a.name, st, i
+              body << st.value_type
+              i += 1
+            end
+          end
+
+          lt.element_types = body
+        end
+      end
+
+      dt
+    end
+
+
+    def gen_templated_type(tt)
+      t = @scope[tt.base.identifier]
+      unless t.kind_of? Template
+        raise "Attempted to expand non-template '#{tt.base.identifier}'"
+      end
+
+      type_args = tt.arguments.map { |x| add x }
+
+      et = t.find_expanded(type_args)
+
+      return et.type if et
+
+      expand_data_template t, type_args
+    end
+
+    def templated_data(d)
+      t = Template.new(d)
+      @scope[d.name.name] = t
+
+      d.cases.each do |c|
+        adc = AbstractDataCase.new(c, t)
+        @scope[c.name] = adc
+      end
+
+      @void
+    end
+
     def gen_data(d)
+      if d.name.kind_of? AST::TemplatedName
+        return templated_data(d)
+      end
+
       elems = [LLVM::Int32]
       lltype = LLVM::Type.struct elems, false, d.name
 
@@ -481,12 +586,20 @@ module Talon
 
     def gen_templated_instance(t)
       if args = t.arguments
-        args.each { |a| add(a) }
+        args.map { |a| add(a) }
       end
 
       obj = @scope[t.name]
-      if obj.kind_of? Template
+      case obj
+      when Template
         return expand_template(obj, t.type)
+      when AbstractDataCase
+        unless t.type == "int"
+          raise "FIXME: ADC type not int"
+        end
+
+        type_args = [@scope["int"]]
+        return obj.expand t.name, type_args
       else
         raise "Attempted to expand non-template '#{t.name}'"
       end
@@ -565,16 +678,30 @@ module Talon
     end
 
     def gen_case_node(i)
-      add i.condition
+      t = add i.condition
+
       i.whens.each do |w|
-        add w
+        when_node w, i, t
       end
 
       @void
     end
 
-    def gen_when_node(i)
-      @scope[i.var.name] = add(i.var)
+    def when_node(i, c, ct)
+      if ct.kind_of? DataType
+        case_name = i.var.type.identifier
+
+        st = ct.cases.detect { |t| t.name == case_name }
+        unless st
+          raise TypeMismatchError,
+                "No subtype of '#{ct.name}' named '#{case_name}'"
+        end
+
+        @scope[i.var.name] = st
+        add_type i.var, st
+      else
+        @scope[i.var.name] = add(i.var)
+      end
 
       add i.body
       @void
@@ -1070,10 +1197,10 @@ module Talon
 
     def gen_templated_instance(ti, alloca=false)
       if t = @top.typer.type_of(ti)
-        if args = ti.arguments
-          args = args.map { |a| g(a) }
-        else
-          args = []
+        if t.kind_of? SpecificDataType
+          if s = t.singleton
+            return s
+          end
         end
 
         if alloca
@@ -1085,7 +1212,20 @@ module Talon
         obj = b.bit_cast ptr, t.value_type
         if m = t.find_operation("initialize")
           m.invoke self, obj, *args
+        elsif t.kind_of? SpecificDataType
+
+          b.store LLVM::Int(t.code),
+                  b.gep(obj, [LLVM::Int(0), LLVM::Int(0), LLVM::Int(0)])
+
+          args = convert_args t, ti, "#{t.name}#initialize"
+
+          i = 1
+          args.each do |a|
+            b.store a, b.gep(obj, [LLVM::Int(0), LLVM::Int(i)])
+            i += 1
+          end
         end
+
         obj
       else
         raise "Unknown type - #{name}"
@@ -1820,14 +1960,10 @@ module Talon
       inner.gen_and_return meth.body
     end
 
-    def gen_data(d)
+    def make_data(d, t, name)
       if pkg = @typer.scope.name
-        name = "#{pkg}.#{d.name}"
-      else
-        name = d.name
+        name = "#{pkg}.#{name}"
       end
-
-      t = @typer.type_of(d)
 
       t.cases.each do |c|
         if c.no_args?
@@ -1844,6 +1980,22 @@ module Talon
           @variables[c.name] = x
         end
       end
+    end
+
+    def gen_data(d)
+      if d.name.kind_of? AST::TemplatedName
+        t = @typer.scope[d.name.name]
+        unless t.kind_of? Template
+          raise "Phase 1 failure, didn't setup Template object"
+        end
+
+        t.instances.each do |st|
+          make_data(d, st.type, st.type.name)
+        end
+      else
+        make_data d, @typer.type_of(d), d.name
+      end
+
     end
 
     def gen_class_def(cls)

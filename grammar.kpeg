@@ -294,7 +294,7 @@ trait = "trait" sp templated_name:name expr_end "end"
       | "trait" sp templated_name:name expr_end l2_seq:e expr_end "end"
         ~trait_def(name,e)
 
-data = "data" sp word:t - "=" br-sp data_cases:c ~data(t,c)
+data = "data" sp templated_name:n - "=" br-sp data_cases:c ~data(n,c)
 
 data_case = word:w "(" typed_id_list:ti ")" ~data_case(w, ti)
           | word:w ~data_case(w, nil)
